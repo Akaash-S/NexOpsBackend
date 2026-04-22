@@ -169,7 +169,7 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
             {
                 "label": "CI/CD Stability",
                 "value": repo.ci_status,
-                "impact": "negative" if repo.ci_status == "failed" else "positive" if repo.ci_status == "success" else "neutral",
+                "impact": "negative" if repo.ci_status == "failing" else "positive" if repo.ci_status == "passing" else "neutral",
             },
             {
                 "label": "Development Velocity",
@@ -192,7 +192,7 @@ def _generate_recommendation(repo: Repo, alerts: list, pipeline_stats: dict) -> 
             "message": f"{critical_count} critical alert(s) detected. Production stability may be at risk.",
             "action": "Triage critical alerts and initiate incident response.",
         }
-    elif repo.ci_status == "failed":
+    elif repo.ci_status == "failing":
         return {
             "urgency": "high",
             "title": "CI Pipeline Requires Attention",

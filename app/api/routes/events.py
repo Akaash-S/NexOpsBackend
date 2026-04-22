@@ -1,13 +1,13 @@
 """
-Event Routes — The Core Ingestion API
-POST /events is the primary entry point for all system state changes.
+Event Routes
+Ingestion and query endpoints for system events.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 
-from app.core.database import get_session, async_session
+from app.core.database import get_session
 from app.schemas.event_schema import EventCreate, EventResponse
 from app.services import event_service
 from app.services.automation_service import process_event
@@ -16,13 +16,11 @@ router = APIRouter(prefix="/events", tags=["Events"])
 
 
 async def _run_automation(event_id: str):
-    """
-    Background task: runs the automation engine in a separate DB session.
-    This ensures the API response (201) is instant while processing happens async.
-    """
+    """Background task to process events without blocking the ingestion response."""
+    from app.core.database import async_session
     async with async_session() as session:
         event = await event_service.get_event_by_id(session, event_id)
-        if event and not event.processed:
+        if event:
             await process_event(session, event)
 
 
@@ -33,41 +31,25 @@ async def create_event(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Ingest a new event into the system.
-    
-    The event is stored immediately and the automation engine is triggered
-    as a background task. The API returns the event instantly.
-    
-    Example body:
-    ```json
-    {
-        "type": "ci.failed",
-        "repo_id": "uuid-here",
-        "metadata": { "branch": "main", "commit": "abc123" }
-    }
-    ```
+    Ingest a new system event (webhook simulation).
+    Triggers the automation engine in a background task.
     """
     try:
-        # Verify repo exists
-        from app.services.repo_service import get_repo_by_id
-        repo = await get_repo_by_id(session, data.repo_id)
-        if not repo:
-            raise HTTPException(status_code=404, detail=f"Repository '{data.repo_id}' not found")
-
         event = await event_service.create_event(session, data)
-
+        
         # Fire-and-forget: trigger automation engine in background
         background_tasks.add_task(_run_automation, event.id)
 
         # Manual mapping to avoid SQLAlchemy .metadata collision
+        # Field names now match the schema (camelCase)
         return EventResponse(
             id=event.id,
             type=event.type,
-            repo_id=event.repo_id,
+            repoId=event.repo_id,
             source=event.source,
-            event_data=event.payload,
+            payload=event.payload,
             processed=event.processed,
-            created_at=event.created_at,
+            timestamp=event.created_at,
         )
     except Exception as e:
         import logging
@@ -97,11 +79,11 @@ async def list_events(
         EventResponse(
             id=e.id,
             type=e.type,
-            repo_id=e.repo_id,
+            repoId=e.repo_id,
             source=e.source,
-            event_data=e.payload,
+            payload=e.payload,
             processed=e.processed,
-            created_at=e.created_at,
+            timestamp=e.created_at,
         )
         for e in events
     ]

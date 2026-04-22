@@ -35,7 +35,7 @@ class Repo(SQLModel, table=True):
     activity: float = Field(default=50.0)  # 0-100 activity score
 
     # CI/CD Status
-    ci_status: str = Field(default="success")  # success | failed | running | pending
+    ci_status: str = Field(default="passing")  # passing | failing | running | pending
 
     # Health Intelligence
     health_score: float = Field(default=100.0)

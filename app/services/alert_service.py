@@ -18,8 +18,8 @@ async def create_alert(session: AsyncSession, data: AlertCreate) -> Alert:
         title=data.title,
         message=data.message,
         severity=data.severity,
-        category=data.category,
-        repo_id=data.repo_id,
+        category=data.type,  # Mapped from 'type' in schema
+        repo_id=data.repoId,  # Mapped from 'repoId' in schema
         event_id=data.event_id,
     )
     session.add(alert)

@@ -22,24 +22,25 @@ logger = logging.getLogger("nexops.automation")
 
 # ─── Event Type → Default Alert Mapping ─────────────────────────────────
 # These are the built-in reactions when no custom rules exist.
+# Status values ('passing', 'failing') align with frontend 'status' type.
 DEFAULT_REACTIONS = {
     "ci.failed": {
         "severity": "high",
         "category": "ci",
         "title": "CI Pipeline Failed",
         "message": "A CI pipeline has failed for this repository. Investigate build logs immediately.",
-        "repo_update": {"ci_status": "failed"},
+        "repo_update": {"ci_status": "failing"},
     },
     "ci.success": {
         "severity": None,  # No alert, just update state
-        "repo_update": {"ci_status": "success"},
+        "repo_update": {"ci_status": "passing"},
     },
     "deploy.failed": {
         "severity": "critical",
         "category": "system",
         "title": "Deployment Failed",
         "message": "A deployment has failed. Production may be affected.",
-        "repo_update": {"ci_status": "failed"},
+        "repo_update": {"ci_status": "failing"},
     },
     "deploy.started": {
         "severity": None,
@@ -47,17 +48,19 @@ DEFAULT_REACTIONS = {
     },
     "issue.created": {
         "severity": "low",
-        "category": "system",
+        "category": "repository",
         "title": "New Issue Opened",
         "message": "A new issue has been opened on this repository.",
         "repo_update_fn": lambda repo, meta: {"open_issues": repo.open_issues + 1},
     },
     "pr.opened": {
         "severity": None,
+        "category": "repository",
         "repo_update_fn": lambda repo, meta: {"open_prs": repo.open_prs + 1},
     },
     "pr.merged": {
         "severity": None,
+        "category": "repository",
         "repo_update_fn": lambda repo, meta: {
             "open_prs": max(0, repo.open_prs - 1),
             "last_commit_at": datetime.utcnow(),
@@ -65,6 +68,7 @@ DEFAULT_REACTIONS = {
     },
     "repo.updated": {
         "severity": None,
+        "category": "repository",
         "repo_update": None,
     },
 }
@@ -139,7 +143,7 @@ async def _find_matching_rules(session: AsyncSession, event: Event) -> List[Rule
     filtered = []
     for rule in rules:
         if rule.condition_config:
-            # Check if all config conditions match the event metadata
+            # Check if all config conditions match the event payload
             config_match = True
             for key, value in rule.condition_config.items():
                 if key == "repo_id" and value != event.repo_id:

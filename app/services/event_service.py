@@ -22,7 +22,7 @@ async def create_event(session: AsyncSession, data: EventCreate) -> Event:
     """
     event = Event(
         type=data.type,
-        repo_id=data.repo_id,
+        repo_id=data.repoId,
         source=data.source,
         payload=data.payload,
     )

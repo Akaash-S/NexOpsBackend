@@ -3,7 +3,7 @@ Repository Schemas
 Request/Response validation for the Repos API.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -18,12 +18,14 @@ class RepoCreate(BaseModel):
 
 class RepoUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=255)
-    ci_status: Optional[str] = Field(default=None, pattern="^(success|failed|running|pending)$")
-    open_issues: Optional[int] = Field(default=None, ge=0)
-    open_prs: Optional[int] = Field(default=None, ge=0)
+    ci_status: Optional[str] = Field(default=None, pattern="^(passing|failing|running|pending|unknown)$", alias="status")
+    open_issues: Optional[int] = Field(default=None, ge=0, alias="issueCount")
+    open_prs: Optional[int] = Field(default=None, ge=0, alias="prCount")
     activity: Optional[float] = Field(default=None, ge=0, le=100)
     vulnerabilities: Optional[int] = Field(default=None, ge=0)
-    last_commit_at: Optional[datetime] = None
+    last_commit_at: Optional[datetime] = Field(default=None, alias="lastCommitAt")
+    
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class RepoResponse(BaseModel):
@@ -32,17 +34,17 @@ class RepoResponse(BaseModel):
     platform: str
     description: Optional[str]
     language: Optional[str]
-    default_branch: str
-    last_commit_at: Optional[datetime]
-    open_issues: int
-    open_prs: int
+    defaultBranch: str = Field(validation_alias="default_branch")
+    lastCommitAt: Optional[datetime] = Field(validation_alias="last_commit_at")
+    issueCount: int = Field(validation_alias="open_issues")
+    prCount: int = Field(validation_alias="open_prs")
     stars: int
     contributors: int
     activity: float
-    ci_status: str
-    health_score: float
+    status: str = Field(validation_alias="ci_status")
+    healthScore: float = Field(validation_alias="health_score")
     vulnerabilities: int
-    created_at: datetime
-    updated_at: datetime
+    createdAt: datetime = Field(validation_alias="created_at")
+    updatedAt: datetime = Field(validation_alias="updated_at")
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

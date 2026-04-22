@@ -3,7 +3,7 @@ Event Schemas
 Request/Response validation for the Events API — the core ingestion endpoint.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, computed_field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -14,20 +14,30 @@ class EventCreate(BaseModel):
         min_length=1,
         description="Event type: repo.updated | ci.failed | ci.success | pr.opened | pr.merged | issue.created | deploy.started | deploy.failed",
     )
-    repo_id: str = Field(..., min_length=1)
+    repoId: str = Field(..., min_length=1, validation_alias="repo_id")
     source: str = Field(default="system")
-    payload: Optional[Dict[str, Any]] = Field(default=None, alias="metadata")
+    
+    # Input can be 'payload' or 'metadata'
+    payload: Optional[Dict[str, Any]] = Field(default=None, validation_alias="metadata")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class EventResponse(BaseModel):
     id: str
     type: str
-    repo_id: str
+    repoId: str = Field(validation_alias="repo_id")
     source: str
-    event_data: Optional[Dict[str, Any]] = Field(None, alias="metadata")
+    
+    # Map internal 'payload' to frontend 'payload'
+    payload: Optional[Dict[str, Any]] = Field(None, validation_alias="payload")
     processed: bool
-    created_at: datetime
+    timestamp: datetime = Field(validation_alias="created_at")
 
-    model_config = {"populate_by_name": True}
+    @computed_field(alias="metadata")
+    @property
+    def event_metadata(self) -> Optional[Dict[str, Any]]:
+        """Keep supporting 'metadata' for compatibility."""
+        return self.payload
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
