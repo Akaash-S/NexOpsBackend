@@ -1,0 +1,95 @@
+"""
+NexOps Backend — Main Application Entry Point
+
+A production-ready DevOps intelligence engine built with FastAPI.
+Manages repositories, processes events, executes automation rules,
+and provides real-time insights.
+"""
+
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings
+from app.core.database import init_db
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s │ %(name)-24s │ %(levelname)-7s │ %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("nexops")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown lifecycle events."""
+    # ── Startup ──────────────────────────────────────────────────────────
+    logger.info("=" * 60)
+    logger.info(f"  🚀 {settings.APP_NAME} Engine Starting...")
+    logger.info(f"  📦 Environment: {settings.APP_ENV}")
+    logger.info(f"  🗄️  Database: {settings.DATABASE_URL[:40]}...")
+    logger.info("=" * 60)
+
+    # Initialize database tables
+    await init_db()
+    logger.info("✅ Database tables initialized")
+
+    yield
+
+    # ── Shutdown ─────────────────────────────────────────────────────────
+    logger.info("🛑 NexOps Engine shutting down...")
+
+
+# ── Create FastAPI App ───────────────────────────────────────────────────
+app = FastAPI(
+    title=settings.APP_NAME,
+    description="DevOps Intelligence & Automation Engine",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# ── CORS Middleware ──────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Register API Routes ─────────────────────────────────────────────────
+from app.api.routes import repos, events, alerts, rules, insights
+
+app.include_router(repos.router, prefix=settings.API_PREFIX)
+app.include_router(events.router, prefix=settings.API_PREFIX)
+app.include_router(alerts.router, prefix=settings.API_PREFIX)
+app.include_router(rules.router, prefix=settings.API_PREFIX)
+app.include_router(insights.router, prefix=settings.API_PREFIX)
+
+
+# ── Health Check ─────────────────────────────────────────────────────────
+@app.get("/health", tags=["System"])
+async def health_check():
+    """Basic health check endpoint."""
+    return {
+        "status": "operational",
+        "service": settings.APP_NAME,
+        "version": "1.0.0",
+    }
+
+
+@app.get("/", tags=["System"])
+async def root():
+    """Root endpoint with API info."""
+    return {
+        "service": settings.APP_NAME,
+        "description": "DevOps Intelligence & Automation Engine",
+        "docs": "/docs",
+        "health": "/health",
+        "api_prefix": settings.API_PREFIX,
+    }

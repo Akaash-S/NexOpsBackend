@@ -1,0 +1,21 @@
+# Core
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# Database
+sqlmodel
+sqlalchemy[asyncio]
+asyncpg
+alembic
+
+# Cache / Event Layer
+redis
+
+# Validation & Serialization
+pydantic
+pydantic-settings
+
+# Utilities
+python-dateutil
+httpx
