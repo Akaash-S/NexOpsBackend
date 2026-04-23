@@ -18,6 +18,7 @@ class Repo(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: Optional[str] = Field(default=None, foreign_key="workspaces.id", index=True)
     name: str = Field(index=True, max_length=255)
     platform: str = Field(
         sa_column=Column(String, nullable=False, default="github")

@@ -16,9 +16,17 @@ from app.models.rule import Rule
 from app.models.pipeline import Pipeline
 from app.models.user import User
 from app.models.team import Team
+from app.models.workspace import Workspace
 
 engine = create_async_engine(settings.async_database_url, echo=False)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+# ── Workspace Data ──────────────────────────────────────────────────────
+WORKSPACES = [
+    {"id": "ws-1", "name": "Frontend Platform", "color": "blue", "description": "Core UI components and micro-frontends"},
+    {"id": "ws-2", "name": "Data Infrastructure", "color": "purple", "description": "Pipelines and warehousing"},
+    {"id": "ws-3", "name": "Security & Compliance", "color": "red", "description": "Audit logs and threat monitoring"},
+]
 
 # ── User & Team Data ─────────────────────────────────────────────────────
 USERS = [
@@ -35,6 +43,7 @@ TEAMS = [
 REPOS = [
     {
         "id": "repo-001",
+        "workspace_id": "ws-1",
         "name": "nexops-frontend",
         "platform": "github",
         "owner": "nexops-io",
@@ -52,6 +61,7 @@ REPOS = [
     },
     {
         "id": "repo-002",
+        "workspace_id": "ws-1",
         "name": "nexops-api",
         "platform": "github",
         "owner": "nexops-io",
@@ -69,6 +79,7 @@ REPOS = [
     },
     {
         "id": "repo-003",
+        "workspace_id": "ws-2",
         "name": "infra-terraform",
         "platform": "gitlab",
         "owner": "ops-team",
@@ -183,6 +194,10 @@ async def seed():
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with session_factory() as session:
+        print("Seeding Workspaces...")
+        for data in WORKSPACES: session.add(Workspace(**data))
+        await session.commit()
+
         print("Seeding Users & Teams...")
         for data in USERS: session.add(User(**data))
         for data in TEAMS: session.add(Team(**data))

@@ -39,6 +39,7 @@ class RepoResponse(BaseSchema):
     language: Optional[str] = None
     default_branch: str
     last_commit_at: Optional[datetime] = None
+    workspace_id: Optional[str] = None
     
     # Aliased fields for exact frontend match
     issue_count: int = Field(validation_alias="open_issues")

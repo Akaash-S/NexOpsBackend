@@ -63,7 +63,7 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams
+from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -72,6 +72,8 @@ app.include_router(rules.router, prefix=settings.API_PREFIX)
 app.include_router(insights.router, prefix=settings.API_PREFIX)
 app.include_router(users.router, prefix=settings.API_PREFIX)
 app.include_router(teams.router, prefix=settings.API_PREFIX)
+app.include_router(workspaces.router, prefix=settings.API_PREFIX)
+app.include_router(pipelines.router, prefix=settings.API_PREFIX)
 
 
 # ── Health Check ─────────────────────────────────────────────────────────
