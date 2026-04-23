@@ -31,8 +31,10 @@ class Repo(SQLModel, table=True):
     open_issues: int = Field(default=0)
     open_prs: int = Field(default=0)
     stars: int = Field(default=0)
+    forks: int = Field(default=0)
     contributors: int = Field(default=0)
     activity: float = Field(default=50.0)  # 0-100 activity score
+    owner: Optional[str] = Field(default=None, max_length=100)
 
     # CI/CD Status
     ci_status: str = Field(default="passing")  # passing | failing | running | pending

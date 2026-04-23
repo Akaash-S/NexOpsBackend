@@ -1,55 +1,58 @@
 """
 Rule Schemas
+Standardized for React frontend compatibility.
 """
 
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Dict, Any
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+from pydantic import Field
+from .base import BaseSchema
 
 
-class RuleCreate(BaseModel):
+class RuleAction(BaseSchema):
+    type: str
+    params: Optional[Dict[str, Any]] = None
+
+
+class RuleCondition(BaseSchema):
+    field: str
+    operator: str
+    value: Any
+
+
+class RuleCreate(BaseSchema):
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=500)
-    trigger: str = Field(
-        ...,
-        min_length=1,
-        validation_alias="condition_type",
-        description="Event type to trigger on: ci.failed | pr.opened | issue.created | deploy.failed",
-    )
-    conditionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="condition_config")
-    actionType: str = Field(
-        ...,
-        validation_alias="action_type",
-        pattern="^(create_alert|update_repo|notify|escalate)$",
-    )
-    actionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="action_config")
-    enabled: bool = Field(default=True, validation_alias="is_active")
-
-    model_config = ConfigDict(populate_by_name=True)
+    trigger: str = Field(..., description="Event type: ci.failed | pr.opened | etc.")
+    
+    # Matching frontend nested structure
+    conditions: List[RuleCondition] = Field(default_factory=list)
+    actions: List[RuleAction] = Field(default_factory=list)
+    
+    enabled: bool = Field(default=True, alias="is_active")
 
 
-class RuleUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=255)
-    description: Optional[str] = Field(default=None, max_length=500)
-    enabled: Optional[bool] = Field(None, validation_alias="is_active")
-    conditionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="condition_config")
-    actionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="action_config")
-
-    model_config = ConfigDict(populate_by_name=True)
+class RuleUpdate(BaseSchema):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    enabled: Optional[bool] = Field(None, alias="is_active")
+    conditions: Optional[List[RuleCondition]] = None
+    actions: Optional[List[RuleAction]] = None
 
 
-class RuleResponse(BaseModel):
+class RuleResponse(BaseSchema):
     id: str
     name: str
-    description: Optional[str]
+    description: Optional[str] = None
     trigger: str = Field(validation_alias="condition_type")
-    conditionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="condition_config")
-    actionType: str = Field(validation_alias="action_type")
-    actionConfig: Optional[Dict[str, Any]] = Field(None, validation_alias="action_config")
+    
+    # These will map to JSONB fields in the DB later
+    conditions: List[RuleCondition] = Field(default_factory=list, validation_alias="condition_config")
+    actions: List[RuleAction] = Field(default_factory=list, validation_alias="action_config")
+    
     enabled: bool = Field(validation_alias="is_active")
-    executionCount: int = Field(validation_alias="execution_count")
-    lastTriggered: Optional[datetime] = Field(None, validation_alias="last_triggered_at")
-    createdAt: datetime = Field(validation_alias="created_at")
-    updatedAt: datetime = Field(validation_alias="updated_at")
-
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    execution_count: int = 0
+    last_triggered: Optional[datetime] = Field(None, validation_alias="last_triggered_at")
+    
+    created_at: datetime
+    updated_at: datetime

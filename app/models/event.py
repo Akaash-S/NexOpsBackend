@@ -28,5 +28,8 @@ class Event(SQLModel, table=True):
         default=None,
         sa_column=Column("payload", JSON, nullable=True),
     )
+    message: Optional[str] = Field(default=None, max_length=500)
+    severity: str = Field(default="info", max_length=20)  # info | warning | error | critical
+    
     processed: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

@@ -22,14 +22,14 @@ async def create_event(session: AsyncSession, data: EventCreate) -> Event:
     """
     event = Event(
         type=data.type,
-        repo_id=data.repoId,
+        repo_id=data.repo_id,
         source=data.source,
         payload=data.payload,
     )
     session.add(event)
     await session.commit()
     await session.refresh(event)
-    logger.info(f"📥 Event created: {event.type} (repo: {event.repo_id})")
+    logger.info(f"Event created: {event.type} (repo: {event.repo_id})")
     return event
 
 

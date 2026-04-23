@@ -1,13 +1,9 @@
 """
-NexOps Seed Script
-Populates the database with realistic sample data to mirror
-the frontend's mockData.ts — ensuring instant frontend integration.
-
-Usage: python seed.py
+NexOps Seed Script (Aligned with Refactored Models)
+Populates the database with realistic sample data.
 """
 
 import asyncio
-import uuid
 from datetime import datetime, timedelta
 from sqlmodel import SQLModel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -18,11 +14,22 @@ from app.models.event import Event
 from app.models.alert import Alert
 from app.models.rule import Rule
 from app.models.pipeline import Pipeline
-
+from app.models.user import User
+from app.models.team import Team
 
 engine = create_async_engine(settings.async_database_url, echo=False)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# ── User & Team Data ─────────────────────────────────────────────────────
+USERS = [
+    {"full_name": "Akaash S", "email": "akaash@nexops.io", "role": "admin", "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Akaash"},
+    {"full_name": "Sarah Chen", "email": "sarah@nexops.io", "role": "lead", "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah"},
+]
+
+TEAMS = [
+    {"name": "Platform Engineering", "description": "Core infrastructure and developer experience", "member_count": 8, "repo_count": 12, "health_score": 94.5},
+    {"name": "Security & Compliance", "description": "Threat monitoring and audit readiness", "member_count": 4, "repo_count": 5, "health_score": 88.0},
+]
 
 # ── Repository Seed Data ─────────────────────────────────────────────────
 REPOS = [
@@ -30,171 +37,113 @@ REPOS = [
         "id": "repo-001",
         "name": "nexops-frontend",
         "platform": "github",
+        "owner": "nexops-io",
         "description": "React frontend for the NexOps DevOps platform",
         "language": "TypeScript",
-        "default_branch": "main",
         "last_commit_at": datetime.utcnow() - timedelta(hours=2),
         "open_issues": 4,
         "open_prs": 2,
         "stars": 128,
+        "forks": 12,
         "contributors": 8,
         "activity": 85.0,
-        "ci_status": "success",
+        "ci_status": "passing",
         "health_score": 92.0,
-        "vulnerabilities": 0,
     },
     {
         "id": "repo-002",
         "name": "nexops-api",
         "platform": "github",
+        "owner": "nexops-io",
         "description": "FastAPI backend engine for NexOps",
         "language": "Python",
-        "default_branch": "main",
         "last_commit_at": datetime.utcnow() - timedelta(hours=1),
         "open_issues": 7,
         "open_prs": 3,
         "stars": 64,
+        "forks": 5,
         "contributors": 5,
         "activity": 72.0,
-        "ci_status": "success",
+        "ci_status": "passing",
         "health_score": 88.0,
-        "vulnerabilities": 1,
     },
     {
         "id": "repo-003",
         "name": "infra-terraform",
         "platform": "gitlab",
+        "owner": "ops-team",
         "description": "Infrastructure-as-code for cloud provisioning",
         "language": "HCL",
-        "default_branch": "main",
         "last_commit_at": datetime.utcnow() - timedelta(days=3),
         "open_issues": 12,
         "open_prs": 0,
         "stars": 22,
+        "forks": 45,
         "contributors": 3,
         "activity": 18.0,
-        "ci_status": "failed",
+        "ci_status": "failing",
         "health_score": 45.0,
         "vulnerabilities": 5,
     },
-    {
-        "id": "repo-004",
-        "name": "auth-service",
-        "platform": "github",
-        "description": "OAuth2 / SSO authentication microservice",
-        "language": "Go",
-        "default_branch": "main",
-        "last_commit_at": datetime.utcnow() - timedelta(hours=6),
-        "open_issues": 2,
-        "open_prs": 1,
-        "stars": 45,
-        "contributors": 4,
-        "activity": 61.0,
-        "ci_status": "success",
-        "health_score": 78.0,
-        "vulnerabilities": 2,
-    },
-    {
-        "id": "repo-005",
-        "name": "data-pipeline",
-        "platform": "github",
-        "description": "ETL pipelines for analytics and reporting",
-        "language": "Python",
-        "default_branch": "develop",
-        "last_commit_at": datetime.utcnow() - timedelta(days=1),
-        "open_issues": 9,
-        "open_prs": 4,
-        "stars": 31,
-        "contributors": 6,
-        "activity": 55.0,
-        "ci_status": "running",
-        "health_score": 65.0,
-        "vulnerabilities": 3,
-    },
-    {
-        "id": "repo-006",
-        "name": "mobile-app",
-        "platform": "github",
-        "description": "React Native mobile application",
-        "language": "TypeScript",
-        "default_branch": "main",
-        "last_commit_at": datetime.utcnow() - timedelta(hours=12),
-        "open_issues": 15,
-        "open_prs": 5,
-        "stars": 89,
-        "contributors": 7,
-        "activity": 78.0,
-        "ci_status": "success",
-        "health_score": 71.0,
-        "vulnerabilities": 4,
-    },
 ]
-
 
 # ── Automation Rules ─────────────────────────────────────────────────────
 RULES = [
     {
-        "id": "rule-001",
         "name": "CI Failure Alert",
         "description": "Create a high-severity alert when any CI pipeline fails",
         "condition_type": "ci.failed",
-        "action_type": "create_alert",
-        "action_config": {
-            "severity": "high",
-            "category": "ci",
-            "title": "🔴 CI Pipeline Failed",
-            "message": "A CI pipeline has failed. Build is broken — merges are blocked.",
-        },
+        "condition_config": [], # No extra filters
+        "action_config": [
+            {
+                "type": "create_alert",
+                "params": {
+                    "severity": "high",
+                    "category": "ci",
+                    "title": "CI Pipeline Failed",
+                    "message": "A CI pipeline has failed. Build is broken — merges are blocked."
+                }
+            },
+            {
+                "type": "update_repo",
+                "params": {"ci_status": "failing"}
+            }
+        ],
         "is_active": True,
     },
     {
-        "id": "rule-002",
-        "name": "Deploy Failure Escalation",
-        "description": "Escalate to critical when a deployment fails",
-        "condition_type": "deploy.failed",
-        "action_type": "escalate",
+        "name": "Auto-Resolve on Pass",
+        "description": "Mark CI as passing when pipeline succeeds",
+        "condition_type": "ci.success",
+        "condition_config": [],
+        "action_config": [
+            {
+                "type": "update_repo",
+                "params": {"ci_status": "passing"}
+            }
+        ],
         "is_active": True,
-    },
-    {
-        "id": "rule-003",
-        "name": "Issue Tracker",
-        "description": "Track new issues and update repo counters",
-        "condition_type": "issue.created",
-        "action_type": "create_alert",
-        "action_config": {
-            "severity": "low",
-            "category": "system",
-            "title": "New Issue Opened",
-            "message": "A new issue has been created on this repository.",
-        },
-        "is_active": True,
-    },
-    {
-        "id": "rule-004",
-        "name": "PR Merge Notifier",
-        "description": "Log PR merge activity for velocity tracking",
-        "condition_type": "pr.merged",
-        "action_type": "update_repo",
-        "action_config": {"last_commit_at": None},  # Will be set dynamically
-        "is_active": True,
-    },
+    }
 ]
-
 
 # ── Pipelines ────────────────────────────────────────────────────────────
 PIPELINES = [
-    {"repo_id": "repo-001", "name": "Build & Test", "status": "success", "duration": 124.5, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-001", "name": "Build & Test", "status": "success", "duration": 118.2, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-002", "name": "pytest", "status": "success", "duration": 87.3, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-002", "name": "pytest", "status": "failed", "duration": 45.1, "branch": "feature/auth", "trigger": "pr"},
-    {"repo_id": "repo-003", "name": "terraform plan", "status": "failed", "duration": 34.8, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-003", "name": "terraform plan", "status": "failed", "duration": 28.0, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-004", "name": "Go Build", "status": "success", "duration": 56.2, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-005", "name": "ETL Tests", "status": "running", "duration": None, "branch": "develop", "trigger": "push"},
-    {"repo_id": "repo-006", "name": "RN Build", "status": "success", "duration": 245.7, "branch": "main", "trigger": "push"},
-    {"repo_id": "repo-006", "name": "E2E Tests", "status": "success", "duration": 312.4, "branch": "main", "trigger": "push"},
+    {
+        "repo_id": "repo-001", 
+        "name": "Build & Test", 
+        "status": "success", 
+        "duration": 124.5, 
+        "branch": "main", 
+        "trigger": "push",
+        "environment": "production",
+        "commit_hash": "a1b2c3d4e5f6g7h8i9j0",
+        "stages": [
+            {"name": "Lint", "status": "success", "duration": 12.5},
+            {"name": "Test", "status": "success", "duration": 85.0},
+            {"name": "Build", "status": "success", "duration": 27.0}
+        ]
+    },
 ]
-
 
 # ── Alerts ───────────────────────────────────────────────────────────────
 ALERTS = [
@@ -212,87 +161,54 @@ ALERTS = [
         "category": "ci",
         "repo_id": "repo-003",
     },
-    {
-        "title": "High memory usage detected",
-        "message": "Auth service pod exceeding 85% memory threshold in production.",
-        "severity": "high",
-        "category": "performance",
-        "repo_id": "repo-004",
-    },
-    {
-        "title": "Dependency outdated: axios@0.21.0",
-        "message": "Known security issue in axios < 0.21.1. Recommend upgrading.",
-        "severity": "medium",
-        "category": "security",
-        "repo_id": "repo-006",
-    },
-    {
-        "title": "Stale branch cleanup needed",
-        "message": "12 branches older than 30 days detected. Consider cleanup.",
-        "severity": "low",
-        "category": "system",
-        "repo_id": "repo-005",
-    },
 ]
-
 
 # ── Events ───────────────────────────────────────────────────────────────
 EVENTS = [
-    {"type": "ci.success", "repo_id": "repo-001", "source": "github", "metadata_": {"branch": "main", "commit": "a1b2c3d"}},
-    {"type": "pr.opened", "repo_id": "repo-001", "source": "github", "metadata_": {"pr_number": 42, "author": "dev-alice"}},
-    {"type": "ci.failed", "repo_id": "repo-003", "source": "gitlab", "metadata_": {"branch": "main", "error": "provider config invalid"}},
-    {"type": "deploy.failed", "repo_id": "repo-003", "source": "system", "metadata_": {"environment": "production"}},
-    {"type": "issue.created", "repo_id": "repo-004", "source": "github", "metadata_": {"issue_number": 15, "title": "Memory leak in auth handler"}},
-    {"type": "pr.merged", "repo_id": "repo-002", "source": "github", "metadata_": {"pr_number": 78, "author": "dev-bob"}},
-    {"type": "ci.success", "repo_id": "repo-006", "source": "github", "metadata_": {"branch": "main", "commit": "f4e5d6c"}},
-    {"type": "repo.updated", "repo_id": "repo-005", "source": "system", "metadata_": {"field": "description"}},
+    {
+        "type": "ci.failed", 
+        "repo_id": "repo-003", 
+        "source": "gitlab", 
+        "message": "CI Pipeline Failed: infra-terraform",
+        "severity": "error",
+        "payload": {"branch": "main", "error": "provider config invalid"}
+    },
 ]
-
 
 async def seed():
     """Seed the database with sample data."""
     async with engine.begin() as conn:
+        # Drop all tables and recreate to apply model changes
+        await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with session_factory() as session:
-        print("🌱 Seeding repositories...")
-        for data in REPOS:
-            repo = Repo(**data)
-            session.add(repo)
+        print("Seeding Users & Teams...")
+        for data in USERS: session.add(User(**data))
+        for data in TEAMS: session.add(Team(**data))
         await session.commit()
-        print(f"   ✅ {len(REPOS)} repositories created")
 
-        print("🌱 Seeding automation rules...")
-        for data in RULES:
-            rule = Rule(**data)
-            session.add(rule)
+        print("Seeding Repositories...")
+        for data in REPOS: session.add(Repo(**data))
         await session.commit()
-        print(f"   ✅ {len(RULES)} rules created")
 
-        print("🌱 Seeding pipelines...")
-        for data in PIPELINES:
-            pipeline = Pipeline(**data)
-            session.add(pipeline)
+        print("Seeding Rules...")
+        for data in RULES: session.add(Rule(**data))
         await session.commit()
-        print(f"   ✅ {len(PIPELINES)} pipelines created")
 
-        print("🌱 Seeding alerts...")
-        for data in ALERTS:
-            alert = Alert(**data)
-            session.add(alert)
+        print("Seeding Pipelines...")
+        for data in PIPELINES: session.add(Pipeline(**data))
         await session.commit()
-        print(f"   ✅ {len(ALERTS)} alerts created")
 
-        print("🌱 Seeding events...")
-        for data in EVENTS:
-            event = Event(**data, processed=True)
-            session.add(event)
+        print("Seeding Alerts...")
+        for data in ALERTS: session.add(Alert(**data))
         await session.commit()
-        print(f"   ✅ {len(EVENTS)} events created")
 
-    print("\n🎉 Seed complete! NexOps database is ready.")
-    print("   Run: uvicorn app.main:app --reload --port 8000")
+        print("Seeding Events...")
+        for data in EVENTS: session.add(Event(**data, processed=True))
+        await session.commit()
 
+    print("\nSeed complete! NexOps backend is fully aligned and ready.")
 
 if __name__ == "__main__":
     asyncio.run(seed())

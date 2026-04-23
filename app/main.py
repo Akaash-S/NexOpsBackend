@@ -17,7 +17,7 @@ from app.core.database import init_db
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(name)-24s │ %(levelname)-7s │ %(message)s",
+    format="%(asctime)s | %(name)-24s | %(levelname)-7s | %(message)s",
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("nexops")
@@ -26,24 +26,24 @@ logger = logging.getLogger("nexops")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle events."""
-    # ── Startup ──────────────────────────────────────────────────────────
-    logger.info("=" * 60)
-    logger.info(f"  🚀 {settings.APP_NAME} Engine Starting...")
-    logger.info(f"  📦 Environment: {settings.APP_ENV}")
-    logger.info(f"  🗄️  Database: {settings.DATABASE_URL[:40]}...")
-    logger.info("=" * 60)
+    # --- Startup ---
+    logger.info("-" * 60)
+    logger.info(f"  {settings.APP_NAME} Engine Starting...")
+    logger.info(f"  Environment: {settings.APP_ENV}")
+    logger.info(f"  Database: {settings.DATABASE_URL[:40]}...")
+    logger.info("-" * 60)
 
     # Initialize database tables
     await init_db()
-    logger.info("✅ Database tables initialized")
+    logger.info("Database tables initialized")
 
     yield
 
-    # ── Shutdown ─────────────────────────────────────────────────────────
-    logger.info("🛑 NexOps Engine shutting down...")
+    # --- Shutdown ---
+    logger.info("NexOps Engine shutting down...")
 
 
-# ── Create FastAPI App ───────────────────────────────────────────────────
+# --- Create FastAPI App ---
 app = FastAPI(
     title=settings.APP_NAME,
     description="DevOps Intelligence & Automation Engine",
@@ -63,13 +63,15 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights
+from app.api.routes import repos, events, alerts, rules, insights, users, teams
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
 app.include_router(alerts.router, prefix=settings.API_PREFIX)
 app.include_router(rules.router, prefix=settings.API_PREFIX)
 app.include_router(insights.router, prefix=settings.API_PREFIX)
+app.include_router(users.router, prefix=settings.API_PREFIX)
+app.include_router(teams.router, prefix=settings.API_PREFIX)
 
 
 # ── Health Check ─────────────────────────────────────────────────────────

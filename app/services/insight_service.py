@@ -88,7 +88,7 @@ async def calculate_health_score(session: AsyncSession, repo_id: str) -> Optiona
     session.add(repo)
     await session.commit()
 
-    logger.info(f"📊 Health score for {repo.name}: {health_score} "
+    logger.info(f"Health score for {repo.name}: {health_score} "
                 f"(CI: {ci_success_rate:.0f}, Activity: {commit_activity:.0f}, Issues: {issue_health:.0f})")
     return health_score
 

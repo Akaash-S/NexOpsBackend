@@ -7,7 +7,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, String
+from sqlalchemy import Column, String, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class Pipeline(SQLModel, table=True):
@@ -30,11 +31,14 @@ class Pipeline(SQLModel, table=True):
     trigger: str = Field(default="push")  # push | pr | manual | schedule
 
     # Metadata
-    commit_sha: Optional[str] = Field(default=None, max_length=40)
+    commit_hash: Optional[str] = Field(default=None, max_length=40)
     commit_message: Optional[str] = Field(default=None, max_length=500)
     triggered_by: Optional[str] = Field(default=None, max_length=100)
+    environment: str = Field(default="staging", max_length=50)  # production | staging | preview
+    
+    # Stages (JSONB/JSON for flexible step tracking)
+    stages: Optional[list] = Field(default_factory=list, sa_column=Column(JSON))
 
     # Timestamps
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    finished_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

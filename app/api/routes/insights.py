@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.services.insight_service import get_repo_insights, calculate_health_score
+from app.schemas.insight_schema import InsightResponse
 
 router = APIRouter(prefix="/repos", tags=["Insights"])
 
 
-@router.get("/{repo_id}/insights")
+@router.get("/{repo_id}/insights", response_model=InsightResponse)
 async def repo_insights(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
