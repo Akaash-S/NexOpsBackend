@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.security import init_firebase
 
 # Configure logging
 logging.basicConfig(
@@ -32,6 +33,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Environment: {settings.APP_ENV}")
     logger.info(f"  Database: {settings.DATABASE_URL[:40]}...")
     logger.info("-" * 60)
+
+    # Initialize Firebase Admin
+    init_firebase()
 
     # Initialize database tables
     await init_db()
@@ -63,7 +67,7 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines
+from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -74,9 +78,26 @@ app.include_router(users.router, prefix=settings.API_PREFIX)
 app.include_router(teams.router, prefix=settings.API_PREFIX)
 app.include_router(workspaces.router, prefix=settings.API_PREFIX)
 app.include_router(pipelines.router, prefix=settings.API_PREFIX)
+app.include_router(analytics.router, prefix=settings.API_PREFIX)
+app.include_router(integrations.router, prefix=settings.API_PREFIX)
+app.include_router(webhooks.router, prefix=settings.API_PREFIX)
 
+from fastapi import WebSocket, WebSocketDisconnect
+from app.core.websocket import manager
 
-# ── Health Check ─────────────────────────────────────────────────────────
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and wait for client messages if needed
+            data = await websocket.receive_text()
+            # Echo or process client messages (optional)
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket Error: {e}")
+        manager.disconnect(websocket)
 @app.get("/health", tags=["System"])
 async def health_check():
     """Basic health check endpoint."""

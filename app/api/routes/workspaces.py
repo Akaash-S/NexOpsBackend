@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.core.database import get_session
+from app.core.security import get_current_user
 from app.schemas.workspace_schema import WorkspaceCreate, WorkspaceResponse
 from app.services import workspace_service
 
@@ -15,7 +16,10 @@ router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
 
 @router.get("", response_model=List[WorkspaceResponse])
-async def list_workspaces(session: AsyncSession = Depends(get_session)):
+async def list_workspaces(
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
     """List all organizational workspaces."""
     workspaces = await workspace_service.get_workspaces(session)
     
@@ -36,6 +40,7 @@ async def list_workspaces(session: AsyncSession = Depends(get_session)):
 async def create_workspace(
     data: WorkspaceCreate,
     session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
 ):
     """Create a new workspace."""
     workspace = await workspace_service.create_workspace(session, data)
@@ -43,7 +48,11 @@ async def create_workspace(
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
-async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_session)):
+async def get_workspace(
+    workspace_id: str, 
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
     """Get detailed workspace stats."""
     workspace = await workspace_service.get_workspace_by_id(session, workspace_id)
     if not workspace:
@@ -55,3 +64,15 @@ async def get_workspace(workspace_id: str, session: AsyncSession = Depends(get_s
         repo_count=stats["repo_count"],
         health_score=stats["health_score"]
     )
+
+@router.delete("/{workspace_id}", status_code=204)
+async def delete_workspace(
+    workspace_id: str, 
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
+    """Delete a workspace and its associated data."""
+    success = await workspace_service.delete_workspace(session, workspace_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return None

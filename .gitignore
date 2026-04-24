@@ -13,3 +13,4 @@ build/
 .env.*
 tests/*
 scratch/*
+service-account.json

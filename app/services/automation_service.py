@@ -76,6 +76,21 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     session.add(event)
     await session.commit()
 
+    # BROADCAST REAL-TIME UPDATE
+    from app.core.websocket import manager
+    try:
+        await manager.broadcast({
+            "type": "system.update",
+            "source": "automation_engine",
+            "payload": {
+                "event_type": event.type,
+                "repo_id": event.repo_id,
+                "actions": actions_taken
+            }
+        })
+    except Exception as e:
+        logger.error(f"WebSocket broadcast failed: {e}")
+
     logger.info(f"Event processed: {actions_taken}")
     return actions_taken
 

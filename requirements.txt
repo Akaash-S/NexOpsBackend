@@ -19,3 +19,4 @@ pydantic-settings
 # Utilities
 python-dateutil
 httpx
+firebase-admin

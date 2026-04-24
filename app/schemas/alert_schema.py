@@ -32,9 +32,7 @@ class AlertResponse(BaseSchema):
     title: str
     message: str
     severity: str
-    
-    # Aliased fields for exact frontend match
-    type: str = Field(validation_alias="category")
+    category: str
     repo_id: str
     event_id: Optional[str] = None
     
@@ -42,5 +40,5 @@ class AlertResponse(BaseSchema):
     resolved_at: Optional[datetime] = None
     acknowledged: bool
     
-    # Frontend expects 'timestamp' for 'created_at'
-    timestamp: datetime = Field(validation_alias="created_at")
+    # Standard timestamp for frontend
+    created_at: datetime

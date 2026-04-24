@@ -29,6 +29,6 @@ class PipelineResponse(BaseSchema):
     environment: str = "staging"
     stages: List[PipelineStage] = Field(default_factory=list)
     
-    # Aliased timestamps for frontend
-    started_at: datetime = Field(validation_alias="created_at")
-    completed_at: Optional[datetime] = Field(None, validation_alias="updated_at")
+    # Standard timestamps
+    created_at: datetime
+    updated_at: datetime

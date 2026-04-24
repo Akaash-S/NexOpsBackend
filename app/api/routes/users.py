@@ -21,12 +21,10 @@ async def list_users(session: AsyncSession = Depends(get_session)):
     return list(result.scalars().all())
 
 
+from app.core.security import get_current_user
+
+
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(session: AsyncSession = Depends(get_session)):
-    """Mock endpoint for the current logged-in user."""
-    # Return the first user as a mock for 'me'
-    result = await session.execute(select(User).limit(1))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="No users found")
+async def get_me(user: User = Depends(get_current_user)):
+    """Return the currently authenticated user profile."""
     return user

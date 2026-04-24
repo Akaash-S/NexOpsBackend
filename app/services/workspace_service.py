@@ -47,3 +47,13 @@ async def get_workspace_stats(session: AsyncSession, workspace_id: str) -> dict:
         "repo_count": repo_count,
         "health_score": round(float(avg_health), 1)
     }
+
+async def delete_workspace(session: AsyncSession, workspace_id: str) -> bool:
+    """Delete a workspace."""
+    workspace = await session.get(Workspace, workspace_id)
+    if not workspace:
+        return False
+    
+    await session.delete(workspace)
+    await session.commit()
+    return True

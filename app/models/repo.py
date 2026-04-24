@@ -12,6 +12,9 @@ from sqlalchemy import Column, String
 
 class Repo(SQLModel, table=True):
     __tablename__ = "repos"
+    
+    class Config:
+        allow_population_by_field_name = True
 
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),

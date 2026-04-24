@@ -41,9 +41,10 @@ class RepoResponse(BaseSchema):
     last_commit_at: Optional[datetime] = None
     workspace_id: Optional[str] = None
     
-    # Aliased fields for exact frontend match
+    # Map backend names to camelCase fields for frontend
     issue_count: int = Field(validation_alias="open_issues")
     pr_count: int = Field(validation_alias="open_prs")
+    open_prs: int = Field(validation_alias="open_prs") # For openPrs in frontend
     status: str = Field(validation_alias="ci_status")
     
     stars: int = 0
