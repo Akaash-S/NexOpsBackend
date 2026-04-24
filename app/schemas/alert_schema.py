@@ -13,10 +13,9 @@ class AlertCreate(BaseSchema):
     title: str = Field(..., min_length=1, max_length=255)
     message: str = Field(..., min_length=1, max_length=2000)
     severity: str = Field(..., pattern="^(low|medium|high|critical)$")
-    type: str = Field(
-        default="system", 
-        pattern="^(security|ci|performance|system|repository|automation)$", 
-        alias="category"
+    category: str = Field(
+        default="system",
+        pattern="^(security|ci|performance|system|repository|automation)$",
     )
     repo_id: str = Field(..., min_length=1)
     event_id: Optional[str] = None

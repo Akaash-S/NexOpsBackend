@@ -132,10 +132,15 @@ async def _find_matching_rules(session: AsyncSession, event: Event) -> List[Rule
 
 def _evaluate_condition(actual: Any, operator: str, expected: Any) -> bool:
     """Evaluate a single condition logic gate."""
-    if operator == "equals": return str(actual) == str(expected)
-    if operator == "contains": return str(expected) in str(actual)
-    if operator == "greater_than": return float(actual) > float(expected)
-    if operator == "less_than": return float(actual) < float(expected)
+    if actual is None:
+        return False
+    try:
+        if operator == "equals": return str(actual) == str(expected)
+        if operator == "contains": return str(expected) in str(actual)
+        if operator == "greater_than": return float(actual) > float(expected)
+        if operator == "less_than": return float(actual) < float(expected)
+    except (ValueError, TypeError):
+        return False
     return False
 
 async def _execute_single_action(session: AsyncSession, action: Dict[str, Any], rule: Optional[Rule], event: Event):

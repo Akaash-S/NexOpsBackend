@@ -5,23 +5,55 @@ Repository Routes
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
+from sqlmodel import select, or_
 
 from app.core.database import get_session
+from app.models.repo import Repo
+from app.models.workspace import Workspace
 from app.schemas.repo_schema import RepoCreate, RepoUpdate, RepoResponse
 from app.services import repo_service
+from app.services.vcs_service import vcs_service
 
 router = APIRouter(prefix="/repos", tags=["Repositories"])
 
 
 @router.get("", response_model=List[RepoResponse])
 async def list_repos(
+    workspace_id: Optional[str] = Query(None),
     platform: Optional[str] = Query(None, pattern="^(github|gitlab|bitbucket)$"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ):
-    """List all tracked repositories."""
-    return await repo_service.get_repos(session, platform=platform, limit=limit, offset=offset)
+    """List repositories, optionally filtered by workspace."""
+    return await repo_service.get_repos(
+        session,
+        workspace_id=workspace_id,
+        platform=platform,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/search", response_model=List[RepoResponse])
+async def search_repos(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=50),
+    session: AsyncSession = Depends(get_session),
+):
+    """Search repositories by name, description, or language."""
+    search_term = f"%{q}%"
+    query = select(Repo).where(
+        or_(
+            Repo.name.ilike(search_term),
+            Repo.description.ilike(search_term),
+            Repo.language.ilike(search_term),
+            Repo.platform.ilike(search_term)
+        )
+    ).limit(limit)
+    
+    result = await session.execute(query)
+    return list(result.scalars().all())
 
 
 @router.get("/{repo_id}", response_model=RepoResponse)
@@ -56,10 +88,6 @@ async def update_repo(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
-from sqlmodel import select
-from app.models.repo import Repo
-from app.models.workspace import Workspace
-from app.services.vcs_service import vcs_service
 
 
 @router.get("/{repo_id}/tree")

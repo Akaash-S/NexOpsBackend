@@ -20,6 +20,8 @@ async def create_event(session: AsyncSession, data: EventCreate) -> Event:
     NOTE: This does NOT trigger automation — that is handled in the route layer
     via BackgroundTasks so the API response is instant.
     """
+    if not data.repo_id:
+        raise ValueError("repo_id is required to create an event")
     event = Event(
         type=data.type,
         repo_id=data.repo_id,

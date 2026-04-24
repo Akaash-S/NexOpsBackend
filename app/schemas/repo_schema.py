@@ -20,15 +20,15 @@ class RepoCreate(BaseSchema):
 class RepoUpdate(BaseSchema):
     name: Optional[str] = Field(default=None, max_length=255)
     ci_status: Optional[str] = Field(
-        default=None, 
-        pattern="^(passing|failing|running|pending|unknown)$", 
-        alias="status"
+        default=None,
+        pattern="^(passing|failing|running|pending|unknown)$",
+        validation_alias="status"
     )
-    open_issues: Optional[int] = Field(default=None, ge=0, alias="issueCount")
-    open_prs: Optional[int] = Field(default=None, ge=0, alias="prCount")
+    open_issues: Optional[int] = Field(default=None, ge=0, validation_alias="issueCount")
+    open_prs: Optional[int] = Field(default=None, ge=0, validation_alias="prCount")
     activity: Optional[float] = Field(default=None, ge=0, le=100)
     vulnerabilities: Optional[int] = Field(default=None, ge=0)
-    last_commit_at: Optional[datetime] = Field(default=None, alias="lastCommitAt")
+    last_commit_at: Optional[datetime] = Field(default=None, validation_alias="lastCommitAt")
 
 
 class RepoResponse(BaseSchema):
@@ -44,7 +44,6 @@ class RepoResponse(BaseSchema):
     # Map backend names to camelCase fields for frontend
     issue_count: int = Field(validation_alias="open_issues")
     pr_count: int = Field(validation_alias="open_prs")
-    open_prs: int = Field(validation_alias="open_prs") # For openPrs in frontend
     status: str = Field(validation_alias="ci_status")
     
     stars: int = 0

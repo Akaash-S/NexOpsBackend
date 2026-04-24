@@ -41,9 +41,8 @@ async def create_rule(
         name=data.name,
         description=data.description,
         condition_type=data.trigger,
-        condition_config=data.conditionConfig,
-        action_type=data.actionType,
-        action_config=data.actionConfig,
+        condition_config=[c.model_dump() for c in data.conditions],
+        action_config=[a.model_dump() for a in data.actions],
         is_active=data.enabled,
     )
     session.add(rule)
@@ -63,24 +62,21 @@ async def update_rule(
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
 
-    # model_dump(by_alias=False) will give us the internal names (condition_type, etc.)
-    # because RuleUpdate has aliases defined.
     update_data = data.model_dump(exclude_unset=True)
-    
-    # Wait, if RuleUpdate has 'enabled' aliased to 'is_active', 
-    # model_dump() will return 'enabled' by default.
-    # We want the DB field names.
-    
-    # Map back to DB field names
+
+    # Map RuleUpdate field names to Rule model field names
     db_mapping = {
         "enabled": "is_active",
-        "conditionConfig": "condition_config",
-        "actionConfig": "action_config",
-        "trigger": "condition_type"
+        "conditions": "condition_config",
+        "actions": "action_config",
+        "trigger": "condition_type",
     }
-    
+
     for key, value in update_data.items():
         db_key = db_mapping.get(key, key)
+        # Serialize nested Pydantic objects to plain dicts for JSON columns
+        if key in ("conditions", "actions") and value is not None:
+            value = [item.model_dump() if hasattr(item, "model_dump") else item for item in value]
         if hasattr(rule, db_key):
             setattr(rule, db_key, value)
 

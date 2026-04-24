@@ -13,6 +13,15 @@ from app.services import alert_service
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
+@router.get("/counts")
+async def alert_counts(
+    repo_id: Optional[str] = Query(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get alert counts grouped by severity."""
+    return await alert_service.get_alert_counts(session, repo_id=repo_id)
+
+
 @router.get("", response_model=List[AlertResponse])
 async def list_alerts(
     repo_id: Optional[str] = Query(None),
@@ -64,12 +73,3 @@ async def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return alert
-
-
-@router.get("/counts")
-async def alert_counts(
-    repo_id: Optional[str] = Query(None),
-    session: AsyncSession = Depends(get_session),
-):
-    """Get alert counts grouped by severity."""
-    return await alert_service.get_alert_counts(session, repo_id=repo_id)

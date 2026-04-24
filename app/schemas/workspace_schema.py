@@ -27,6 +27,7 @@ class WorkspaceUpdate(BaseSchema):
     description: Optional[str] = None
     provider: Optional[str] = None
     status: Optional[str] = None
+    access_token: Optional[str] = None
 
 
 class WorkspaceResponse(WorkspaceBase):

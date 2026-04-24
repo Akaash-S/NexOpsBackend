@@ -36,21 +36,13 @@ async def create_event(
     """
     try:
         event = await event_service.create_event(session, data)
-        
+
         # Fire-and-forget: trigger automation engine in background
         background_tasks.add_task(_run_automation, event.id)
 
-        # Manual mapping to avoid SQLAlchemy .metadata collision
-        # Field names now match the schema (camelCase)
-        return EventResponse(
-            id=event.id,
-            type=event.type,
-            repoId=event.repo_id,
-            source=event.source,
-            payload=event.payload,
-            processed=event.processed,
-            timestamp=event.created_at,
-        )
+        return EventResponse.model_validate(event)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         import logging
         logging.getLogger("nexops.api").error(f"Error creating event: {e}", exc_info=True)
@@ -75,15 +67,4 @@ async def list_events(
         limit=limit,
         offset=offset,
     )
-    return [
-        EventResponse(
-            id=e.id,
-            type=e.type,
-            repoId=e.repo_id,
-            source=e.source,
-            payload=e.payload,
-            processed=e.processed,
-            timestamp=e.created_at,
-        )
-        for e in events
-    ]
+    return [EventResponse.model_validate(e) for e in events]

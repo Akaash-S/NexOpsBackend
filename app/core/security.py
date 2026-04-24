@@ -4,16 +4,15 @@ from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 import os
-
 import logging
+from sqlmodel import select
+from app.models.user import User
 
 logger = logging.getLogger("nexops")
 
-# Initialize Firebase Admin SDK
 def init_firebase():
     """Initializes the Firebase Admin SDK using the service account key."""
     if not firebase_admin._apps:
-        # Check if the service account file exists
         if os.path.exists(settings.FIREBASE_SERVICE_ACCOUNT_PATH):
             try:
                 cred = credentials.Certificate(settings.FIREBASE_SERVICE_ACCOUNT_PATH)
@@ -23,11 +22,6 @@ def init_firebase():
                 logger.error(f"Failed to initialize Firebase Admin: {e}")
         else:
             logger.warning(f"Firebase service account file not found at {settings.FIREBASE_SERVICE_ACCOUNT_PATH}")
-            logger.warning("Backend authentication will fail until the service-account.json is provided.")
-
-from sqlmodel import select
-from app.core.database import get_session
-from app.models.user import User
 
 security = HTTPBearer()
 
@@ -36,15 +30,30 @@ async def get_current_user(
 ):
     """
     Verify Firebase token AND ensure the user exists in our SQL database.
+    In development mode, falls back to a mock user if Firebase is uninitialized.
     """
     try:
-        # 1. Verify the ID token sent from the client
-        decoded_token = auth.verify_id_token(credentials.credentials)
-        uid = decoded_token.get("uid")
+        uid = None
+        decoded_token = {}
+
+        # 1. Attempt to verify the ID token sent from the client
+        try:
+            decoded_token = auth.verify_id_token(credentials.credentials)
+            uid = decoded_token.get("uid")
+        except Exception as auth_err:
+            if settings.APP_ENV == "development":
+                logger.warning(f"Development Auth Fallback: {auth_err}")
+                uid = "dev-user-123"
+                decoded_token = {
+                    "uid": uid,
+                    "email": "dev@nexops.local",
+                    "name": "Local Developer",
+                    "picture": None
+                }
+            else:
+                raise auth_err
         
         # 2. Sync with local database
-        # We need a session here. Since this is a dependency, we'll open a session manually
-        # or use the context manager.
         from app.core.database import async_session
         async with async_session() as session:
             result = await session.execute(select(User).where(User.id == uid))
@@ -57,18 +66,28 @@ async def get_current_user(
                     email=decoded_token.get("email", ""),
                     full_name=decoded_token.get("name", "Developer"),
                     avatar_url=decoded_token.get("picture"),
-                    role="member"
+                    role="admin" if settings.APP_ENV == "development" else "member"
                 )
                 session.add(user)
-                await session.commit()
-                await session.refresh(user)
                 logger.info(f"Created new database record for user: {uid}")
+            else:
+                # Update existing user info from token
+                user.full_name = decoded_token.get("name", user.full_name)
+                user.avatar_url = decoded_token.get("picture", user.avatar_url)
+                if settings.APP_ENV == "development":
+                    user.role = "admin"
+                session.add(user)
+
+            await session.commit()
+            await session.refresh(user)
             
-            # Return the full User model object
             return user
             
     except Exception as e:
         logger.error(f"Authentication failed: {e}")
+        if settings.APP_ENV == "development":
+             return User(id="dev-fallback", email="dev@nexops.local", full_name="Fallback Dev", role="admin")
+             
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired authentication credentials: {str(e)}",

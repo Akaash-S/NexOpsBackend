@@ -9,10 +9,30 @@ from typing import List
 
 from app.core.database import get_session
 from app.core.security import get_current_user
-from app.schemas.workspace_schema import WorkspaceCreate, WorkspaceResponse
+from app.schemas.workspace_schema import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
 from app.services import workspace_service
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+# ... (list_workspaces and create_workspace)
+
+@router.patch("/{workspace_id}", response_model=WorkspaceResponse)
+async def update_workspace(
+    workspace_id: str,
+    data: WorkspaceUpdate,
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
+    """Update workspace details."""
+    workspace = await workspace_service.update_workspace(session, workspace_id, data)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    stats = await workspace_service.get_workspace_stats(session, workspace.id)
+    return WorkspaceResponse(
+        **workspace.model_dump(),
+        repo_count=stats["repo_count"],
+        health_score=stats["health_score"]
+    )
 
 
 @router.get("", response_model=List[WorkspaceResponse])

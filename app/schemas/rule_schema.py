@@ -29,13 +29,13 @@ class RuleCreate(BaseSchema):
     conditions: List[RuleCondition] = Field(default_factory=list)
     actions: List[RuleAction] = Field(default_factory=list)
     
-    enabled: bool = Field(default=True, alias="is_active")
+    enabled: bool = Field(default=True, validation_alias="is_active")
 
 
 class RuleUpdate(BaseSchema):
     name: Optional[str] = None
     description: Optional[str] = None
-    enabled: Optional[bool] = Field(None, alias="is_active")
+    enabled: Optional[bool] = Field(None, validation_alias="is_active")
     conditions: Optional[List[RuleCondition]] = None
     actions: Optional[List[RuleAction]] = None
 
