@@ -64,6 +64,9 @@ class VCService:
                     "User-Agent": "NexOps-Intelligence-Engine"
                 }
             )
+            # Handle empty repositories (GitHub returns 404 for /contents/ if no commits)
+            if response.status_code == 404:
+                return []
             response.raise_for_status()
             return response.json()
 
@@ -79,6 +82,15 @@ class VCService:
                     "User-Agent": "NexOps-Intelligence-Engine"
                 }
             )
+            
+            if response.status_code == 404:
+                return {
+                    "path": path,
+                    "content": "// No codes are there in this repository or file not found.",
+                    "encoding": "none",
+                    "size": 0
+                }
+
             response.raise_for_status()
             data = response.json()
             

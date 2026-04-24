@@ -83,26 +83,34 @@ async def get_activity_data(
 
     # Create an ordered list of the last 7 days
     day_labels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-    last_7_days = []
+    last_7_days_labels = []
+    activity_map = {}
+    
     for i in range(7):
         date = seven_days_ago + timedelta(days=i)
         day_name = day_labels[date.weekday()]
-        last_7_days.append(day_name)
-
-    activity_map = {day: {"name": day, "commits": 0, "issues": 0, "deployed": 0} for day in last_7_days}
+        # Format: "MON 24/04"
+        full_label = f"{day_name} {date.strftime('%d/%m')}"
+        last_7_days_labels.append(full_label)
+        activity_map[full_label] = {"name": full_label, "commits": 0, "issues": 0, "deployed": 0, "raw_date": date.date()}
 
     for event in events:
-        day_name = day_labels[event.created_at.weekday()]
-        if day_name in activity_map:
-            # Map event types to chart categories
-            if "repo.updated" in event.type or "push" in event.type:
-                activity_map[day_name]["commits"] += 1
-            elif "issue" in event.type or "pr.opened" in event.type:
-                activity_map[day_name]["issues"] += 1
-            elif "deploy.success" in event.type or "ci.success" in event.type:
-                activity_map[day_name]["deployed"] += 1
+        event_date = event.created_at.date()
+        for label, data in activity_map.items():
+            if data["raw_date"] == event_date:
+                # Map event types to chart categories
+                if "repo.updated" in event.type or "push" in event.type:
+                    data["commits"] += 1
+                elif "issue" in event.type or "pr.opened" in event.type:
+                    data["issues"] += 1
+                elif "deploy.success" in event.type or "ci.success" in event.type:
+                    data["deployed"] += 1
+                break
 
     # Return in the correct chronological order
-    ordered_data = [activity_map[day] for day in last_7_days]
+    ordered_data = [activity_map[label] for label in last_7_days_labels]
+    # Remove raw_date before returning
+    for item in ordered_data:
+        item.pop("raw_date", None)
     
     return ActivityResponse(data=ordered_data)
