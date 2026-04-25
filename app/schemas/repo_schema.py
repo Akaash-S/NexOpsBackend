@@ -19,6 +19,7 @@ class RepoCreate(BaseSchema):
 
 class RepoUpdate(BaseSchema):
     name: Optional[str] = Field(default=None, max_length=255)
+    cluster_id: Optional[str] = Field(default=None)
     ci_status: Optional[str] = Field(
         default=None,
         pattern="^(passing|failing|running|pending|unknown)$",
@@ -40,6 +41,7 @@ class RepoResponse(BaseSchema):
     default_branch: str
     last_commit_at: Optional[datetime] = None
     workspace_id: Optional[str] = None
+    cluster_id: Optional[str] = None
     
     # Map backend names to camelCase fields for frontend
     issue_count: int = Field(validation_alias="open_issues")

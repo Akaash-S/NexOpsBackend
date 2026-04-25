@@ -68,6 +68,12 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     # Recalculate health score
     try:
         await calculate_health_score(session, event.repo_id)
+        # Propagate health up to the cluster if repo belongs to one
+        from app.models.repo import Repo as RepoModel
+        repo_obj = await session.get(RepoModel, event.repo_id)
+        if repo_obj and repo_obj.cluster_id:
+            from app.services.cluster_service import recalculate_cluster_health
+            await recalculate_cluster_health(session, repo_obj.cluster_id)
     except Exception as e:
         logger.error(f"Health score recalculation failed: {e}")
 

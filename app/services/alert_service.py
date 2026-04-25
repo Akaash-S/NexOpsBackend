@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, case
 
 from app.models.alert import Alert
 from app.schemas.alert_schema import AlertCreate
@@ -99,15 +100,27 @@ async def acknowledge_alert(session: AsyncSession, alert_id: str) -> Optional[Al
 
 
 async def get_alert_counts(session: AsyncSession, repo_id: Optional[str] = None) -> dict:
-    """Get alert count breakdown by severity."""
-    query = select(Alert).where(Alert.resolved == False)
+    """Get alert count breakdown by severity using a single optimized query."""
+    from sqlalchemy import case
+    
+    query = select(
+        func.count(Alert.id).label("total"),
+        func.sum(case((Alert.severity == "critical", 1), else_=0)).label("critical"),
+        func.sum(case((Alert.severity == "high", 1), else_=0)).label("high"),
+        func.sum(case((Alert.severity == "medium", 1), else_=0)).label("medium"),
+        func.sum(case((Alert.severity == "low", 1), else_=0)).label("low"),
+    ).where(Alert.resolved == False)
+    
     if repo_id:
         query = query.where(Alert.repo_id == repo_id)
+    
     result = await session.execute(query)
-    alerts = list(result.scalars().all())
-
-    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "total": len(alerts)}
-    for alert in alerts:
-        if alert.severity in counts:
-            counts[alert.severity] += 1
-    return counts
+    row = result.first()
+    
+    return {
+        "total": row.total or 0,
+        "critical": row.critical or 0,
+        "high": row.high or 0,
+        "medium": row.medium or 0,
+        "low": row.low or 0,
+    }

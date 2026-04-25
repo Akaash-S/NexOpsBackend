@@ -58,16 +58,19 @@ app = FastAPI(
 )
 
 # ── CORS Middleware ──────────────────────────────────────────────────────
+origins = settings.cors_origins_list or ["http://localhost:3000", "http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies
+from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies, clusters
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -82,6 +85,7 @@ app.include_router(analytics.router, prefix=settings.API_PREFIX)
 app.include_router(integrations.router, prefix=settings.API_PREFIX)
 app.include_router(webhooks.router, prefix=settings.API_PREFIX)
 app.include_router(dependencies.router, prefix=settings.API_PREFIX)
+app.include_router(clusters.router, prefix=settings.API_PREFIX)
 
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.websocket import manager

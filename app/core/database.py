@@ -14,15 +14,15 @@ connect_args = {}
 if settings.requires_ssl:
     connect_args["ssl"] = True
 
-from sqlalchemy.pool import NullPool
-
-# Async engine for Neon serverless PostgreSQL
+# Async engine for Neon serverless PostgreSQL with connection pooling
 engine = create_async_engine(
     settings.async_database_url,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     connect_args=connect_args,
-    poolclass=NullPool,
+    pool_size=10,  # Maintain 10 connections
+    max_overflow=20,  # Allow 20 additional connections under load
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 # Session factory

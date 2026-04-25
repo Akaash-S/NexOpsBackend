@@ -4,8 +4,7 @@ Centralized settings using pydantic-settings for type-safe environment variable 
 """
 
 from pydantic_settings import BaseSettings
-from typing import List
-from typing import Optional
+from typing import List, Optional
 import json
 
 
@@ -22,12 +21,20 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # CORS — stored as plain string, parsed in the property below
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS_ORIGINS regardless of format — JSON array or comma-separated."""
+        v = self.CORS_ORIGINS.strip()
+        if v.startswith("["):
+            return json.loads(v)
+        return [o.strip() for o in v.split(",") if o.strip()]
 
     # Firebase
     FIREBASE_SERVICE_ACCOUNT_PATH: str = "service-account.json"
-    
+
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: Optional[str] = None
 
@@ -59,10 +66,6 @@ class Settings(BaseSettings):
             return url.replace("postgres://", "postgresql://", 1)
         return url
 
-    @property
-    def cors_origins_list(self) -> List[str]:
-        return self.CORS_ORIGINS
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -70,4 +73,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

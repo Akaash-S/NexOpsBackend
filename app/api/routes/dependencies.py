@@ -25,15 +25,17 @@ router = APIRouter(prefix="/dependencies", tags=["Dependencies"])
 @router.get("/topology", response_model=TopologyResponse)
 async def get_topology(
     workspace_id: str | None = None,
+    cluster_id: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     """
     Return the full topology graph: all repo nodes + all dependency edges.
-    Optionally scoped to a workspace.
+    Optionally scoped to a workspace or a specific cluster.
     """
-    # Fetch repos
     repo_query = select(Repo)
-    if workspace_id:
+    if cluster_id:
+        repo_query = repo_query.where(Repo.cluster_id == cluster_id)
+    elif workspace_id:
         repo_query = repo_query.where(Repo.workspace_id == workspace_id)
     repo_result = await session.execute(repo_query)
     repos = list(repo_result.scalars().all())

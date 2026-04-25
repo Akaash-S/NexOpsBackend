@@ -20,15 +20,17 @@ router = APIRouter(prefix="/repos", tags=["Repositories"])
 @router.get("", response_model=List[RepoResponse])
 async def list_repos(
     workspace_id: Optional[str] = Query(None),
+    cluster_id: Optional[str] = Query(None),
     platform: Optional[str] = Query(None, pattern="^(github|gitlab|bitbucket)$"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
 ):
-    """List repositories, optionally filtered by workspace."""
+    """List repositories, optionally filtered by workspace or cluster."""
     return await repo_service.get_repos(
         session,
         workspace_id=workspace_id,
+        cluster_id=cluster_id,
         platform=platform,
         limit=limit,
         offset=offset,
@@ -84,9 +86,31 @@ async def update_repo(
     session: AsyncSession = Depends(get_session),
 ):
     """Update repository details."""
+    # Get the old cluster_id before update
+    old_repo = await repo_service.get_repo_by_id(session, repo_id)
+    if not old_repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    old_cluster_id = old_repo.cluster_id
+    
+    # Update the repo
     repo = await repo_service.update_repo(session, repo_id, data)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
+    
+    # If cluster_id changed, recalculate health for both old and new clusters
+    new_cluster_id = repo.cluster_id
+    if old_cluster_id != new_cluster_id:
+        from app.services import cluster_service
+        
+        # Recalculate old cluster health (if it had one)
+        if old_cluster_id:
+            await cluster_service.recalculate_cluster_health(session, old_cluster_id)
+        
+        # Recalculate new cluster health (if assigned to one)
+        if new_cluster_id:
+            await cluster_service.recalculate_cluster_health(session, new_cluster_id)
+    
     return repo
 
 
