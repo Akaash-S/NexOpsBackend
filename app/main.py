@@ -67,7 +67,7 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks
+from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -81,6 +81,7 @@ app.include_router(pipelines.router, prefix=settings.API_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_PREFIX)
 app.include_router(integrations.router, prefix=settings.API_PREFIX)
 app.include_router(webhooks.router, prefix=settings.API_PREFIX)
+app.include_router(dependencies.router, prefix=settings.API_PREFIX)
 
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.websocket import manager
