@@ -29,6 +29,7 @@ class Deployment(SQLModel, table=True):
     # Metadata
     commit_hash: Optional[str] = Field(default=None, max_length=40)
     changelog: Optional[str] = Field(default=None, max_length=2000)
+    provider_id: Optional[str] = Field(default=None, index=True)
     
     # Timestamps
     deployed_at: datetime = Field(default_factory=datetime.utcnow)

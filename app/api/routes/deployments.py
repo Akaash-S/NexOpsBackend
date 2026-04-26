@@ -53,7 +53,8 @@ async def trigger_deployment(
         payload={
             "deployment_id": deployment.id,
             "version": data.version,
-            "environment": data.environment
+            "environment": data.environment,
+            "provider_id": data.provider_id
         }
     )
     
@@ -68,7 +69,8 @@ async def trigger_deployment(
         trigger="manual",
         environment=data.environment,
         commit_hash=data.commit_hash,
-        logs=generate_realistic_logs("Deployment", "HEAD", "success") # Initially running logs
+        logs=generate_realistic_logs("Deployment", "HEAD", "success"),
+        metadata={"provider_id": data.provider_id} # Store provider info in pipeline metadata
     )
     session.add(pipeline)
     await session.flush()

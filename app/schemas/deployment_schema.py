@@ -10,6 +10,7 @@ class DeploymentBase(BaseSchema):
     deployed_by: Optional[str] = None
     commit_hash: Optional[str] = None
     changelog: Optional[str] = None
+    provider_id: Optional[str] = None
 
 class DeploymentCreate(DeploymentBase):
     pass
