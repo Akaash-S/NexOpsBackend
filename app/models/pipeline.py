@@ -38,6 +38,9 @@ class Pipeline(SQLModel, table=True):
     
     # Stages (JSONB/JSON for flexible step tracking)
     stages: Optional[list] = Field(default_factory=list, sa_column=Column(JSON))
+    
+    # Real execution logs
+    logs: Optional[str] = Field(default=None)
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

@@ -26,6 +26,7 @@ class PipelineResponse(BaseSchema):
     commit_hash: Optional[str] = None
     environment: str = "staging"
     stages: List[PipelineStage] = Field(default_factory=list)
+    logs: Optional[str] = None
 
     # Frontend expects startedAt, map from created_at
     started_at: datetime = Field(validation_alias="created_at")

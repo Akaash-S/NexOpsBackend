@@ -90,7 +90,10 @@ async def sync_vcs_repositories(
                 )
                 session.add(sync_event)
 
-                # Create a mock initial pipeline
+                # Create a mock initial pipeline with realistic logs
+                from app.core.logs import generate_realistic_logs
+                logs = generate_realistic_logs(repo.name, repo.default_branch or "main", "success")
+                
                 initial_pipeline = Pipeline(
                     repo_id=repo.id,
                     name="Initial Verification",
@@ -98,6 +101,7 @@ async def sync_vcs_repositories(
                     trigger="manual",
                     commit_message="Initial cluster synchronization",
                     environment="production",
+                    logs=logs,
                     created_at=datetime.utcnow() - timedelta(minutes=random.randint(5, 60))
                 )
                 session.add(initial_pipeline)
