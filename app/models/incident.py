@@ -6,8 +6,9 @@ Tracks the lifecycle from discovery to resolution.
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from sqlmodel import SQLModel, Field
+from sqlalchemy import Column, JSON
 
 
 class Incident(SQLModel, table=True):
@@ -28,6 +29,7 @@ class Incident(SQLModel, table=True):
     
     # Root cause analysis
     root_cause_repo_id: Optional[str] = Field(default=None, foreign_key="repos.id")
+    impacted_repos: List[str] = Field(default=[], sa_column=Column(JSON))
     impact_summary: Optional[str] = Field(default=None, max_length=1000)
 
     # Timestamps

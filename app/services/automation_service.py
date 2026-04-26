@@ -81,7 +81,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
             session, 
             event.repo_id, 
             event.severity, 
-            title=f"Systemic Failure: {event.message or event.type}"
+            title=f"Systemic Failure: {event.message or event.type}",
+            impacted_repos=downstream
         )
         actions_taken["incident_id"] = incident.id
         
@@ -105,6 +106,10 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     except Exception as e:
         logger.error(f"Health score recalculation failed: {e}")
 
+    # Capture details for broadcast before commit (to avoid lazy loading issues)
+    event_type = event.type
+    repo_id = event.repo_id
+
     # Mark event as processed
     event.processed = True
     session.add(event)
@@ -117,8 +122,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
             "type": "system.update",
             "source": "intelligence_engine",
             "payload": {
-                "event_type": event.type,
-                "repo_id": event.repo_id,
+                "event_type": event_type,
+                "repo_id": repo_id,
                 "actions": actions_taken
             }
         })

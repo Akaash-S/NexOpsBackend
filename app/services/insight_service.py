@@ -138,8 +138,25 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
     event_result = await session.execute(event_query)
     recent_event_count = event_result.scalar()
 
+    # Check if this repo is the root cause of an active incident
+    from app.models.incident import Incident
+    incident_query = select(Incident).where(
+        Incident.root_cause_repo_id == repo_id,
+        Incident.status == "open"
+    )
+    incident_result = await session.execute(incident_query)
+    active_incident = incident_result.scalar_one_or_none()
+    
+    impact_info = None
+    if active_incident:
+        impact_info = {
+            "incident_id": active_incident.id,
+            "impacted_count": len(active_incident.impacted_repos or []),
+            "severity": active_incident.severity
+        }
+
     # Generate recommendation
-    recommendation = _generate_recommendation(repo, active_alerts, pipeline_stats)
+    recommendation = _generate_recommendation(repo, active_alerts, pipeline_stats, impact_info)
 
     return {
         "repo_id": repo.id,
@@ -180,11 +197,19 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
     }
 
 
-def _generate_recommendation(repo: Repo, alerts: list, pipeline_stats: dict) -> dict:
+def _generate_recommendation(repo: Repo, alerts: list, pipeline_stats: dict, impact_info: Optional[dict] = None) -> dict:
     """Generate an actionable recommendation based on current state."""
     critical_count = sum(1 for a in alerts if a.severity == "critical")
     high_count = sum(1 for a in alerts if a.severity == "high")
 
+    if impact_info and impact_info["severity"] in ["high", "critical"]:
+        return {
+            "urgency": "critical",
+            "title": "Systemic Impact Detected",
+            "message": f"This repository is the root cause of a cascading failure affecting {impact_info['impacted_count']} downstream services.",
+            "action": "Initiate rollback of the latest deployment or configuration change immediately.",
+        }
+    
     if critical_count > 0:
         return {
             "urgency": "critical",

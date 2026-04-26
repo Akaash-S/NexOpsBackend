@@ -255,12 +255,12 @@ async def seed():
         for data in TEAMS: session.add(Team(**data))
         await session.commit()
 
-        print("Seeding Repositories...")
-        for data in REPOS: session.add(Repo(**data))
-        await session.commit()
-
         print("Seeding Clusters...")
         for data in CLUSTERS: session.add(Cluster(**data))
+        await session.commit()
+
+        print("Seeding Repositories...")
+        for data in REPOS: session.add(Repo(**data))
         await session.commit()
 
         print("Seeding Rules...")

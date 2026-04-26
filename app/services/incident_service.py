@@ -15,7 +15,13 @@ from app.models.repo import Repo
 
 logger = logging.getLogger("nexops.incidents")
 
-async def get_or_create_incident(session: AsyncSession, repo_id: str, severity: str, title: str) -> Incident:
+async def get_or_create_incident(
+    session: AsyncSession, 
+    repo_id: str, 
+    severity: str, 
+    title: str,
+    impacted_repos: List[str] = []
+) -> Incident:
     """
     Find an existing open incident in the same cluster within the last 30 mins, 
     or create a new one.
@@ -36,7 +42,11 @@ async def get_or_create_incident(session: AsyncSession, repo_id: str, severity: 
         
         if existing_incident:
             logger.info(f"Grouping alert into existing incident: {existing_incident.id}")
-            # Potentially upgrade severity if needed
+            # Add new impacted repos to existing list
+            current_impacted = set(existing_incident.impacted_repos or [])
+            current_impacted.update(impacted_repos)
+            existing_incident.impacted_repos = list(current_impacted)
+            session.add(existing_incident)
             return existing_incident
 
     # Create new incident
@@ -46,6 +56,7 @@ async def get_or_create_incident(session: AsyncSession, repo_id: str, severity: 
         severity=severity,
         status="open",
         root_cause_repo_id=repo_id,
+        impacted_repos=impacted_repos,
         started_at=datetime.utcnow()
     )
     session.add(new_incident)

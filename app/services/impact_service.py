@@ -33,6 +33,7 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
 
     logger.info(f"Starting impact propagation from {root_repo_id} (Level: {impact_level})")
 
+    impacted_clusters = set()
     while to_visit:
         current_repo_id = to_visit.pop(0)
         if current_repo_id in visited:
@@ -40,8 +41,7 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
         
         visited.add(current_repo_id)
         
-        # Find all repos that depend on this repo (current_repo is the target)
-        # source_repo_id depends on target_repo_id
+        # Find all repos that depend on this repo
         query = select(Dependency).where(Dependency.target_repo_id == current_repo_id)
         result = await session.execute(query)
         dependencies = result.scalars().all()
@@ -62,10 +62,21 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
                     if new_health < 50:
                         repo.ci_status = "failing"
                     
+                    if repo.cluster_id:
+                        impacted_clusters.add(repo.cluster_id)
+                    
                     session.add(repo)
                     to_visit.append(downstream_repo_id)
 
     await session.commit()
+
+    # RECALCULATE CLUSTER HEALTH FOR ALL IMPACTED CLUSTERS
+    if impacted_clusters:
+        from app.services.cluster_service import recalculate_cluster_health
+        logger.info(f"Recalculating health for {len(impacted_clusters)} impacted clusters")
+        for cluster_id in impacted_clusters:
+            await recalculate_cluster_health(session, cluster_id)
+
     logger.info(f"Impact propagation complete. Affected {len(visited) - 1} downstream repos.")
 
 async def get_downstream_repos(session: AsyncSession, repo_id: str) -> List[str]:
