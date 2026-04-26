@@ -5,10 +5,8 @@ from app.core.config import settings
 
 # In production, this should be a 32-byte string encoded in base64
 # We use a fallback for dev, but we should always use the setting
-CRYPTO_KEY = os.getenv("CRYPTO_SECRET", "_quTgtR0C6NufNi80kDfQ75-k_N1_1LzwScpDSdSRcM=")
-
 def get_cipher():
-    return Fernet(CRYPTO_KEY.encode())
+    return Fernet(settings.ENCRYPTION_KEY.encode())
 
 def encrypt_secret(plain_text: str) -> str:
     """Encrypts a string and returns the base64 encoded cipher text."""

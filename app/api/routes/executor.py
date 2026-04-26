@@ -40,13 +40,16 @@ async def execute_code(
 
     try:
         if data.language.lower() == "python":
-            command = f"{sys.executable} {tmp_path}"
+            executable = sys.executable
+            args = [tmp_path]
         else:
-            command = f"node {tmp_path}"
+            executable = "node"
+            args = [tmp_path]
 
         # Run the command with a timeout
-        process = await asyncio.create_subprocess_shell(
-            command,
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )

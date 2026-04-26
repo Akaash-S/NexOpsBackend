@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # Firebase
     FIREBASE_SERVICE_ACCOUNT_PATH: str = "service-account.json"
 
+    # Encryption (Fernet)
+    ENCRYPTION_KEY: str = "_quTgtR0C6NufNi80kDfQ75-k_N1_1LzwScpDSdSRcM="
+
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: Optional[str] = None
 
