@@ -10,19 +10,19 @@ import json
 
 class Settings(BaseSettings):
     # App
-    APP_NAME: str = "NexOps"
-    APP_ENV: str = "development"
-    DEBUG: bool = True
-    API_PREFIX: str = "/api/v1"
+    APP_NAME: str
+    APP_ENV: str
+    DEBUG: bool
+    API_PREFIX: str
 
-    # Database — single Neon PostgreSQL URL
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/nexops"
+    # Database
+    DATABASE_URL: str
 
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str
 
-    # CORS — stored as plain string, parsed in the property below
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    # CORS
+    CORS_ORIGINS: str
 
     @property
     def cors_origins_list(self) -> List[str]:
@@ -33,13 +33,13 @@ class Settings(BaseSettings):
         return [o.strip() for o in v.split(",") if o.strip()]
 
     # Firebase
-    FIREBASE_SERVICE_ACCOUNT_PATH: str = "service-account.json"
+    FIREBASE_SERVICE_ACCOUNT_PATH: str
 
     # Encryption (Fernet)
-    ENCRYPTION_KEY: str = "_quTgtR0C6NufNi80kDfQ75-k_N1_1LzwScpDSdSRcM="
+    ENCRYPTION_KEY: str
 
     # GitHub Webhook
-    GITHUB_WEBHOOK_SECRET: Optional[str] = None
+    GITHUB_WEBHOOK_SECRET: str
 
     @property
     def async_database_url(self) -> str:
