@@ -12,6 +12,7 @@ class DependencyCreate(BaseSchema):
     source_repo_id: str
     target_repo_id: str
     label: str = Field(default="depends on", max_length=100)
+    type: str = Field(default="api", max_length=50)
 
 
 class DependencyResponse(BaseSchema):
@@ -19,6 +20,7 @@ class DependencyResponse(BaseSchema):
     source_repo_id: str
     target_repo_id: str
     label: str
+    type: str
     created_at: datetime
 
 

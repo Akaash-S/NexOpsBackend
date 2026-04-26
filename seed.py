@@ -17,8 +17,12 @@ from app.models.pipeline import Pipeline
 from app.models.user import User
 from app.models.team import Team
 from app.models.workspace import Workspace
+from app.models.dependency import Dependency
+from app.models.incident import Incident
+from app.models.deployment import Deployment
+from app.models.cluster import Cluster
 
-engine = create_async_engine(settings.async_database_url, echo=False)
+engine = create_async_engine(settings.async_database_url, echo=True)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # ── Workspace Data ──────────────────────────────────────────────────────
@@ -39,11 +43,18 @@ TEAMS = [
     {"name": "Security & Compliance", "description": "Threat monitoring and audit readiness", "member_count": 4, "repo_count": 5, "health_score": 88.0},
 ]
 
+# ── Cluster Data ────────────────────────────────────────────────────────
+CLUSTERS = [
+    {"id": "cluster-1", "workspace_id": "ws-1", "name": "NexOps Core", "description": "Primary platform services", "color": "blue"},
+    {"id": "cluster-2", "workspace_id": "ws-1", "name": "Frontend Edge", "description": "UI and CDN layers", "color": "emerald"},
+]
+
 # ── Repository Seed Data ─────────────────────────────────────────────────
 REPOS = [
     {
         "id": "repo-001",
         "workspace_id": "ws-1",
+        "cluster_id": "cluster-2",
         "name": "nexops-frontend",
         "platform": "github",
         "owner": "nexops-io",
@@ -62,6 +73,7 @@ REPOS = [
     {
         "id": "repo-002",
         "workspace_id": "ws-1",
+        "cluster_id": "cluster-1",
         "name": "nexops-api",
         "platform": "github",
         "owner": "nexops-io",
@@ -80,6 +92,7 @@ REPOS = [
     {
         "id": "repo-003",
         "workspace_id": "ws-2",
+        "cluster_id": "cluster-1",
         "name": "infra-terraform",
         "platform": "gitlab",
         "owner": "ops-team",
@@ -186,8 +199,47 @@ EVENTS = [
     },
 ]
 
+# ── Dependencies ────────────────────────────────────────────────────────
+DEPENDENCIES = [
+    {"source_repo_id": "repo-001", "target_repo_id": "repo-002", "type": "api", "label": "calls api"},
+    {"source_repo_id": "repo-002", "target_repo_id": "repo-003", "type": "hard", "label": "requires infra"},
+]
+
+# ── Incidents ───────────────────────────────────────────────────────────
+INCIDENTS = [
+    {
+        "id": "inc-001",
+        "cluster_id": "cluster-1",
+        "title": "Systemic API Degradation",
+        "severity": "high",
+        "status": "investigating",
+        "root_cause_repo_id": "repo-003",
+        "impact_summary": "Infra failure in repo-003 is causing cascade failures in nexops-api and frontend.",
+        "started_at": datetime.utcnow() - timedelta(minutes=45)
+    }
+]
+
+# ── Deployments ─────────────────────────────────────────────────────────
+DEPLOYMENTS = [
+    {
+        "repo_id": "repo-001",
+        "version": "v1.2.0",
+        "environment": "production",
+        "status": "success",
+        "deployed_at": datetime.utcnow() - timedelta(hours=5)
+    },
+    {
+        "repo_id": "repo-002",
+        "version": "v1.0.4",
+        "environment": "production",
+        "status": "failed",
+        "deployed_at": datetime.utcnow() - timedelta(minutes=15)
+    }
+]
+
 async def seed():
     """Seed the database with sample data."""
+    print("Starting database seed process...")
     async with engine.begin() as conn:
         # Drop all tables and recreate to apply model changes
         await conn.run_sync(SQLModel.metadata.drop_all)
@@ -207,6 +259,10 @@ async def seed():
         for data in REPOS: session.add(Repo(**data))
         await session.commit()
 
+        print("Seeding Clusters...")
+        for data in CLUSTERS: session.add(Cluster(**data))
+        await session.commit()
+
         print("Seeding Rules...")
         for data in RULES: session.add(Rule(**data))
         await session.commit()
@@ -221,6 +277,18 @@ async def seed():
 
         print("Seeding Events...")
         for data in EVENTS: session.add(Event(**data, processed=True))
+        await session.commit()
+        
+        print("Seeding Dependencies...")
+        for data in DEPENDENCIES: session.add(Dependency(**data))
+        await session.commit()
+        
+        print("Seeding Incidents...")
+        for data in INCIDENTS: session.add(Incident(**data))
+        await session.commit()
+        
+        print("Seeding Deployments...")
+        for data in DEPLOYMENTS: session.add(Deployment(**data))
         await session.commit()
 
     print("\nSeed complete! NexOps backend is fully aligned and ready.")

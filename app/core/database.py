@@ -17,7 +17,7 @@ if settings.requires_ssl:
 # Async engine for Neon serverless PostgreSQL with connection pooling
 engine = create_async_engine(
     settings.async_database_url,
-    echo=settings.DEBUG,
+    echo=False,  # Set to False to keep terminal logs clean and short
     pool_pre_ping=True,
     connect_args=connect_args,
     pool_size=10,  # Maintain 10 connections

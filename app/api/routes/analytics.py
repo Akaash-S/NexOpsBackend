@@ -35,32 +35,27 @@ async def get_dashboard_summary(
     from app.services.alert_service import get_alerts
     from app.services.cluster_service import get_clusters
     
-    # Fetch all data in parallel
-    repos_task = get_repos(session, workspace_id=workspace_id, limit=100)
-    alerts_task = get_alerts(session, resolved=False, limit=50)
-    clusters_task = get_clusters(session, workspace_id) if workspace_id else asyncio.sleep(0)
+    # Execute all data fetches sequentially (SQLAlchemy sessions are not concurrency-safe)
+    repos = await get_repos(session, workspace_id=workspace_id, limit=100)
+    alerts = await get_alerts(session, resolved=False, limit=50)
+    clusters = await get_clusters(session, workspace_id) if workspace_id else []
     
     # Stats queries
-    repos_count_task = session.execute(select(Repo))
-    alerts_count_task = session.execute(
+    repos_result = await session.execute(select(Repo))
+    alerts_result = await session.execute(
         select(func.count(Alert.id)).where(
             Alert.resolved == False,
             Alert.severity.in_(["critical", "high"])
         )
     )
-    pipeline_stats_task = session.execute(
+    pipeline_stats_result = await session.execute(
         select(
             func.count(Pipeline.id).label("total"),
             func.count().filter(Pipeline.status == "success").label("success")
         ).where(Pipeline.status.in_(["success", "failed"]))
     )
-    running_task = session.execute(
+    running_result = await session.execute(
         select(func.count(Pipeline.id)).where(Pipeline.status == "running")
-    )
-    
-    # Await all in parallel
-    repos, alerts, clusters, repos_result, alerts_result, pipeline_stats_result, running_result = await asyncio.gather(
-        repos_task, alerts_task, clusters_task, repos_count_task, alerts_count_task, pipeline_stats_task, running_task
     )
     
     # Calculate stats
@@ -92,27 +87,22 @@ async def get_dashboard_stats(
     user = Depends(get_current_user)
 ):
     """Get aggregated top-level metrics for the dashboard using parallel execution."""
-    # Run all queries in parallel for 4x speed improvement
-    repos_task = session.execute(select(Repo))
-    alerts_task = session.execute(
+    # Execute all queries sequentially (SQLAlchemy sessions are not concurrency-safe)
+    repos_result = await session.execute(select(Repo))
+    alerts_result = await session.execute(
         select(func.count(Alert.id)).where(
             Alert.resolved == False,
             Alert.severity.in_(["critical", "high"])
         )
     )
-    pipeline_stats_task = session.execute(
+    pipeline_stats_result = await session.execute(
         select(
             func.count(Pipeline.id).label("total"),
             func.count().filter(Pipeline.status == "success").label("success")
         ).where(Pipeline.status.in_(["success", "failed"]))
     )
-    running_task = session.execute(
+    running_result = await session.execute(
         select(func.count(Pipeline.id)).where(Pipeline.status == "running")
-    )
-    
-    # Await all queries in parallel
-    repos_result, alerts_result, pipeline_stats_result, running_result = await asyncio.gather(
-        repos_task, alerts_task, pipeline_stats_task, running_task
     )
     
     # 1. Avg Health

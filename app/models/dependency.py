@@ -24,6 +24,9 @@ class Dependency(SQLModel, table=True):
     # The repo being depended on
     target_repo_id: str = Field(foreign_key="repos.id", index=True)
 
+    # type: hard | soft | api | library
+    type: str = Field(default="api", max_length=50, index=True)
+
     # Human-readable label shown on the edge
     label: str = Field(default="depends on", max_length=100)
 

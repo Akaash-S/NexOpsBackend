@@ -18,9 +18,12 @@ from app.core.security import init_firebase
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(name)-24s | %(levelname)-7s | %(message)s",
-    datefmt="%H:%M:%S",
+    format="%(levelname)-7s | %(message)s",
 )
+# Silence verbose logs from third-party libraries
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 logger = logging.getLogger("nexops")
 
 
@@ -70,7 +73,7 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies, clusters
+from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies, clusters, incidents, deployments
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -86,6 +89,8 @@ app.include_router(integrations.router, prefix=settings.API_PREFIX)
 app.include_router(webhooks.router, prefix=settings.API_PREFIX)
 app.include_router(dependencies.router, prefix=settings.API_PREFIX)
 app.include_router(clusters.router, prefix=settings.API_PREFIX)
+app.include_router(incidents.router, prefix=settings.API_PREFIX)
+app.include_router(deployments.router, prefix=settings.API_PREFIX)
 
 from fastapi import WebSocket, WebSocketDisconnect
 from app.core.websocket import manager

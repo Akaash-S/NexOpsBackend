@@ -10,6 +10,10 @@ from app.models.pipeline import Pipeline
 from app.models.rule import Rule
 from app.models.alert import Alert
 from app.models.team import Team
+from app.models.cluster import Cluster
+from app.models.dependency import Dependency
+from app.models.incident import Incident
+from app.models.deployment import Deployment
 
 async def reset():
     print("Connecting to engine and dropping tables...")

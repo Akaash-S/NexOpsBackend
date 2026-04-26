@@ -77,8 +77,8 @@ async def get_topology(
             source=d.source_repo_id,
             target=d.target_repo_id,
             label=d.label,
-            # Edge is broken if the source repo is failing
-            is_broken=d.source_repo_id in failing_ids,
+            # Edge is broken if the target repo (upstream) is failing
+            is_broken=d.target_repo_id in failing_ids,
         )
         for d in scoped_deps
     ]
@@ -116,6 +116,7 @@ async def create_dependency(
         source_repo_id=data.source_repo_id,
         target_repo_id=data.target_repo_id,
         label=data.label,
+        type=data.type or "api",
     )
     session.add(dep)
     await session.commit()

@@ -34,27 +34,30 @@ DEFAULT_REACTIONS = {
 }
 
 async def process_event(session: AsyncSession, event: Event) -> dict:
-    """The main automation pipeline."""
+    """The main automation pipeline (NexOps Intelligence Engine)."""
+    from app.services.impact_service import propagate_impact, get_downstream_repos
+    from app.services.incident_service import get_or_create_incident
+    
     actions_taken = {
         "event_id": event.id,
         "event_type": event.type,
         "rules_matched": 0,
         "total_actions": 0,
+        "impacted_repos": 0,
+        "incident_id": None
     }
 
-    logger.info(f"Processing event: {event.type} for repo {event.repo_id}")
+    logger.info(f"Intelligence Engine Processing: {event.type} for repo {event.repo_id}")
 
+    # 1. Evaluate Rules
     matched_rules = await _find_matching_rules(session, event)
     actions_taken["rules_matched"] = len(matched_rules)
 
     if matched_rules:
         for rule in matched_rules:
-            # Execute all actions in the rule
             for action in (rule.action_config or []):
                 await _execute_single_action(session, action, rule, event)
                 actions_taken["total_actions"] += 1
-            
-            # Update rule execution metadata
             rule.execution_count += 1
             rule.last_triggered_at = datetime.utcnow()
             session.add(rule)
@@ -65,10 +68,35 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
             await _execute_single_action(session, action, None, event)
             actions_taken["total_actions"] += 1
 
-    # Recalculate health score
+    # 2. Impact Propagation (KEY TRANSFORMATION)
+    # If the event is a failure (CI/Deploy), propagate impact
+    if event.type in ["ci.failed", "deploy.failed"] or event.severity in ["error", "critical"]:
+        # Traverse dependencies and update downstream health
+        await propagate_impact(session, event.repo_id, event.severity)
+        downstream = await get_downstream_repos(session, event.repo_id)
+        actions_taken["impacted_repos"] = len(downstream)
+        
+        # Create or group into an Incident
+        incident = await get_or_create_incident(
+            session, 
+            event.repo_id, 
+            event.severity, 
+            title=f"Systemic Failure: {event.message or event.type}"
+        )
+        actions_taken["incident_id"] = incident.id
+        
+        # Generate Intelligent Insight
+        insight_msg = f"{event.type} in {event.repo_id} -> "
+        if len(downstream) > 0:
+            insight_msg += f"propagated to {len(downstream)} services -> impacting cluster health."
+        else:
+            insight_msg += "local failure detected."
+        
+        event.message = f"{event.message or ''} | Insight: {insight_msg}".strip(" | ")
+
+    # 3. Recalculate health score for the source repo
     try:
         await calculate_health_score(session, event.repo_id)
-        # Propagate health up to the cluster if repo belongs to one
         from app.models.repo import Repo as RepoModel
         repo_obj = await session.get(RepoModel, event.repo_id)
         if repo_obj and repo_obj.cluster_id:
@@ -87,7 +115,7 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     try:
         await manager.broadcast({
             "type": "system.update",
-            "source": "automation_engine",
+            "source": "intelligence_engine",
             "payload": {
                 "event_type": event.type,
                 "repo_id": event.repo_id,
@@ -97,7 +125,7 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     except Exception as e:
         logger.error(f"WebSocket broadcast failed: {e}")
 
-    logger.info(f"Event processed: {actions_taken}")
+    logger.info(f"Intelligence loop complete: {actions_taken}")
     return actions_taken
 
 async def _find_matching_rules(session: AsyncSession, event: Event) -> List[Rule]:
