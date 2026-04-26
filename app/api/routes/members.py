@@ -62,3 +62,42 @@ async def list_workspace_invitations(
 ):
     """List all invitations for a workspace."""
     return await invitation_service.get_workspace_invitations(session, workspace_id)
+
+@router.delete("/workspaces/{workspace_id}/members/{user_id}")
+async def revoke_member_access(
+    workspace_id: str,
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Revoke a user's access to the workspace."""
+    # Prevent self-revocation (optional, depends on policy)
+    if user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot revoke your own access. Transfer ownership or contact another admin."
+        )
+    
+    success = await member_service.remove_member(session, workspace_id, user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found in this workspace"
+        )
+    return {"message": "Access revoked successfully"}
+
+@router.delete("/workspaces/{workspace_id}/invitations/{invitation_id}")
+async def cancel_invitation(
+    workspace_id: str,
+    invitation_id: str,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
+    """Cancel a pending invitation."""
+    success = await invitation_service.cancel_invitation(session, workspace_id, invitation_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found"
+        )
+    return {"message": "Invitation cancelled successfully"}

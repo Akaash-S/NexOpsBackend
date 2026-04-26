@@ -95,3 +95,19 @@ async def get_workspace_invitations(session: AsyncSession, workspace_id: str) ->
     query = select(Invitation).where(Invitation.workspace_id == workspace_id)
     result = await session.execute(query)
     return list(result.scalars().all())
+
+async def cancel_invitation(session: AsyncSession, workspace_id: str, invitation_id: str) -> bool:
+    query = select(Invitation).where(
+        Invitation.id == invitation_id,
+        Invitation.workspace_id == workspace_id
+    )
+    result = await session.execute(query)
+    invitation = result.scalar_one_or_none()
+    
+    if not invitation:
+        return False
+        
+    await session.delete(invitation)
+    await session.commit()
+    logger.info(f"Invitation {invitation_id} cancelled for workspace {workspace_id}")
+    return True
