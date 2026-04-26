@@ -14,6 +14,9 @@ from app.models.cluster import Cluster
 from app.models.dependency import Dependency
 from app.models.incident import Incident
 from app.models.deployment import Deployment
+from app.models.cloud_provider import CloudProvider
+from app.models.workspace_member import WorkspaceMember
+from app.models.invitation import Invitation
 
 async def reset():
     print("Connecting to engine and dropping tables...")
