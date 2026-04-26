@@ -251,8 +251,25 @@ async def seed():
         await session.commit()
 
         print("Seeding Users & Teams...")
-        for data in USERS: session.add(User(**data))
+        users = []
+        for data in USERS:
+            u = User(**data)
+            session.add(u)
+            users.append(u)
         for data in TEAMS: session.add(Team(**data))
+        await session.commit()
+
+        print("Seeding Workspace Memberships...")
+        # Link Akaash to all workspaces as Admin
+        # Link Sarah to Frontend Platform as Lead
+        from app.models.workspace_member import WorkspaceMember
+        memberships = [
+            WorkspaceMember(workspace_id="ws-1", user_id=users[0].id, role="admin"),
+            WorkspaceMember(workspace_id="ws-2", user_id=users[0].id, role="admin"),
+            WorkspaceMember(workspace_id="ws-3", user_id=users[0].id, role="admin"),
+            WorkspaceMember(workspace_id="ws-1", user_id=users[1].id, role="lead"),
+        ]
+        for m in memberships: session.add(m)
         await session.commit()
 
         print("Seeding Clusters...")
