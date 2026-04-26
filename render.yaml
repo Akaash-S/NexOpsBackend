@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: nexops-backend
+    runtime: docker
+    plan: free
+    region: ohio
+    envVars:
+      - key: APP_NAME
+        value: NexOps
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexops-db
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "*"
+
+databases:
+  - name: nexops-db
+    plan: free
+    region: ohio

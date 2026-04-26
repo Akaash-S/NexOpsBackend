@@ -20,3 +20,4 @@ pydantic-settings
 python-dateutil
 httpx
 firebase-admin
+cryptography
