@@ -12,6 +12,7 @@ from typing import List
 from datetime import datetime
 from app.core.database import get_session
 from app.core.security import get_current_user
+from app.core.redis import get_cached_data, set_cached_data
 from app.models.repo import Repo
 from app.models.alert import Alert
 from app.models.event import Event
@@ -20,104 +21,42 @@ from app.schemas.analytics_schema import DashboardStats, ActivityResponse, Activ
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
-@router.get("/dashboard/summary", response_model=DashboardSummary)
-async def get_dashboard_summary(
-    workspace_id: str = Query(None),
-    session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
-):
-    """
-    Get all dashboard data in a single request to reduce latency.
-    Combines stats, repos, alerts, and clusters into one response.
-    """
-    from app.models.cluster import Cluster
-    from app.services.repo_service import get_repos
-    from app.services.alert_service import get_alerts
-    from app.services.cluster_service import get_clusters
+async def _calculate_dashboard_stats(session: AsyncSession) -> DashboardStats:
+    """Calculate aggregated top-level metrics in a single database round-trip."""
+    avg_health_sub = select(func.avg(Repo.health_score)).scalar_subquery()
+    alerts_sub = select(func.count(Alert.id)).where(
+        Alert.resolved == False,
+        Alert.severity.in_(["critical", "high"])
+    ).scalar_subquery()
     
-    # Execute all data fetches sequentially (SQLAlchemy sessions are not concurrency-safe)
-    repos = await get_repos(session, workspace_id=workspace_id, limit=100)
-    alerts = await get_alerts(session, resolved=False, limit=50)
-    clusters = await get_clusters(session, workspace_id) if workspace_id else []
+    pipeline_success_sub = select(func.count(Pipeline.id)).where(
+        Pipeline.status == "success"
+    ).scalar_subquery()
+    pipeline_total_sub = select(func.count(Pipeline.id)).where(
+        Pipeline.status.in_(["success", "failed"])
+    ).scalar_subquery()
     
-    # Stats queries
-    repos_result = await session.execute(select(Repo))
-    alerts_result = await session.execute(
-        select(func.count(Alert.id)).where(
-            Alert.resolved == False,
-            Alert.severity.in_(["critical", "high"])
-        )
-    )
-    pipeline_stats_result = await session.execute(
-        select(
-            func.count(Pipeline.id).label("total"),
-            func.count().filter(Pipeline.status == "success").label("success")
-        ).where(Pipeline.status.in_(["success", "failed"]))
-    )
-    running_result = await session.execute(
-        select(func.count(Pipeline.id)).where(Pipeline.status == "running")
-    )
-    
-    # Calculate stats
-    all_repos = repos_result.scalars().all()
-    avg_health = sum(r.health_score for r in all_repos) / len(all_repos) if all_repos else 100.0
-    vulnerability_index = alerts_result.scalar() or 0
-    p_stats = pipeline_stats_result.first()
-    success_rate = (p_stats.success / p_stats.total * 100) if p_stats and p_stats.total > 0 else 100.0
-    running_count = running_result.scalar() or 0
-    infra_load = min((running_count / 20) * 100, 100.0)
-    
-    stats = DashboardStats(
-        avg_health=round(avg_health, 1),
-        success_rate=round(success_rate, 1),
-        vulnerability_index=vulnerability_index,
-        infrastructure_load=round(infra_load, 1)
-    )
-    
-    return DashboardSummary(
-        stats=stats,
-        repos=repos,
-        alerts=alerts,
-        clusters=clusters if workspace_id else []
-    )
+    running_sub = select(func.count(Pipeline.id)).where(
+        Pipeline.status == "running"
+    ).scalar_subquery()
 
-@router.get("/dashboard", response_model=DashboardStats)
-async def get_dashboard_stats(
-    session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
-):
-    """Get aggregated top-level metrics for the dashboard using parallel execution."""
-    # Execute all queries sequentially (SQLAlchemy sessions are not concurrency-safe)
-    repos_result = await session.execute(select(Repo))
-    alerts_result = await session.execute(
-        select(func.count(Alert.id)).where(
-            Alert.resolved == False,
-            Alert.severity.in_(["critical", "high"])
-        )
+    query = select(
+        avg_health_sub.label("avg_health"),
+        alerts_sub.label("vulnerability_index"),
+        pipeline_success_sub.label("pipeline_success"),
+        pipeline_total_sub.label("pipeline_total"),
+        running_sub.label("running_count")
     )
-    pipeline_stats_result = await session.execute(
-        select(
-            func.count(Pipeline.id).label("total"),
-            func.count().filter(Pipeline.status == "success").label("success")
-        ).where(Pipeline.status.in_(["success", "failed"]))
-    )
-    running_result = await session.execute(
-        select(func.count(Pipeline.id)).where(Pipeline.status == "running")
-    )
+    result = await session.execute(query)
+    row = result.first()
     
-    # 1. Avg Health
-    repos = repos_result.scalars().all()
-    avg_health = sum(r.health_score for r in repos) / len(repos) if repos else 100.0
+    avg_health = float(row.avg_health) if row and row.avg_health is not None else 100.0
+    vulnerability_index = row.vulnerability_index if row and row.vulnerability_index is not None else 0
+    p_success = row.pipeline_success or 0
+    p_total = row.pipeline_total or 0
+    running_count = row.running_count or 0
     
-    # 2. Vulnerability Index
-    vulnerability_index = alerts_result.scalar() or 0
-
-    # 3. Success Rate
-    p_stats = pipeline_stats_result.first()
-    success_rate = (p_stats.success / p_stats.total * 100) if p_stats and p_stats.total > 0 else 100.0
-
-    # 4. Infrastructure Load
-    running_count = running_result.scalar() or 0
+    success_rate = (p_success / p_total * 100) if p_total > 0 else 100.0
     infra_load = min((running_count / 20) * 100, 100.0)
     
     return DashboardStats(
@@ -127,12 +66,73 @@ async def get_dashboard_stats(
         infrastructure_load=round(infra_load, 1)
     )
 
+@router.get("/dashboard/summary", response_model=DashboardSummary)
+async def get_dashboard_summary(
+    workspace_id: str = Query(None),
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
+    """
+    Get all dashboard data in a single request, cached in Redis.
+    Combines stats, repos, alerts, and clusters into one response.
+    """
+    workspace_key = workspace_id if workspace_id else "all"
+    cache_key = f"cache:dashboard:summary:{workspace_key}"
+    
+    cached = await get_cached_data(cache_key)
+    if cached:
+        return DashboardSummary(**cached)
+
+    from app.models.cluster import Cluster
+    from app.services.repo_service import get_repos
+    from app.services.alert_service import get_alerts
+    from app.services.cluster_service import get_clusters
+    
+    # Execute database queries
+    repos = await get_repos(session, workspace_id=workspace_id, limit=100)
+    alerts = await get_alerts(session, resolved=False, limit=50)
+    clusters = await get_clusters(session, workspace_id) if workspace_id else []
+    
+    # Calculate stats using consolidated database aggregates
+    stats = await _calculate_dashboard_stats(session)
+    
+    summary = DashboardSummary(
+        stats=stats,
+        repos=repos,
+        alerts=alerts,
+        clusters=clusters
+    )
+    
+    # Cache the result in Redis with 30s TTL
+    await set_cached_data(cache_key, summary.model_dump(), ttl=30)
+    return summary
+
+@router.get("/dashboard", response_model=DashboardStats)
+async def get_dashboard_stats(
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
+    """Get aggregated top-level metrics for the dashboard, cached in Redis."""
+    cache_key = "cache:dashboard:stats"
+    cached = await get_cached_data(cache_key)
+    if cached:
+        return DashboardStats(**cached)
+
+    stats = await _calculate_dashboard_stats(session)
+    await set_cached_data(cache_key, stats.model_dump(), ttl=30)
+    return stats
+
 @router.get("/activity", response_model=ActivityResponse)
 async def get_activity_data(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    """Get real time-series data for velocity charts from the Events table."""
+    """Get real time-series data for velocity charts from the Events table, cached in Redis."""
+    cache_key = "cache:dashboard:activity"
+    cached = await get_cached_data(cache_key)
+    if cached:
+        return ActivityResponse(**cached)
+
     from datetime import timedelta
     now = datetime.utcnow()
     seven_days_ago = now - timedelta(days=6) # 7 days including today
@@ -173,4 +173,6 @@ async def get_activity_data(
         for label in last_7_days_labels
     ]
 
-    return ActivityResponse(data=ordered_points)
+    response_data = ActivityResponse(data=ordered_points)
+    await set_cached_data(cache_key, response_data.model_dump(), ttl=30)
+    return response_data

@@ -115,6 +115,13 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     session.add(event)
     await session.commit()
 
+    # INVALIDATE CACHE IN REDIS
+    from app.core.redis import invalidate_cache_pattern
+    try:
+        await invalidate_cache_pattern("cache:dashboard:*")
+    except Exception as cache_err:
+        logger.error(f"Failed to invalidate dashboard cache: {cache_err}")
+
     # BROADCAST REAL-TIME UPDATE
     from app.core.websocket import manager
     try:

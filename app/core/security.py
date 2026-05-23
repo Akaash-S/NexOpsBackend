@@ -23,6 +23,8 @@ def init_firebase():
         else:
             logger.warning(f"Firebase service account file not found at {settings.FIREBASE_SERVICE_ACCOUNT_PATH}")
 
+_user_cache = {}
+
 security = HTTPBearer()
 
 async def get_current_user(
@@ -53,6 +55,10 @@ async def get_current_user(
             else:
                 raise auth_err
         
+        # Check in-memory cache first to avoid slow DB queries
+        if uid and uid in _user_cache:
+            return _user_cache[uid]
+
         # 2. Sync with local database
         from app.core.database import async_session
         async with async_session() as session:
@@ -69,18 +75,30 @@ async def get_current_user(
                     role="admin" if settings.APP_ENV == "development" else "member"
                 )
                 session.add(user)
+                await session.commit()
+                await session.refresh(user)
                 logger.info(f"Created new database record for user: {uid}")
             else:
-                # Update existing user info from token
-                user.full_name = decoded_token.get("name", user.full_name)
-                user.avatar_url = decoded_token.get("picture", user.avatar_url)
-                if settings.APP_ENV == "development":
+                # Only update and commit if there is actual change
+                changed = False
+                name = decoded_token.get("name")
+                picture = decoded_token.get("picture")
+                if name and user.full_name != name:
+                    user.full_name = name
+                    changed = True
+                if picture and user.avatar_url != picture:
+                    user.avatar_url = picture
+                    changed = True
+                if settings.APP_ENV == "development" and user.role != "admin":
                     user.role = "admin"
-                session.add(user)
-
-            await session.commit()
-            await session.refresh(user)
+                    changed = True
+                
+                if changed:
+                    session.add(user)
+                    await session.commit()
+                    await session.refresh(user)
             
+            _user_cache[uid] = user
             return user
             
     except Exception as e:

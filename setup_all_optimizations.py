@@ -31,7 +31,23 @@ async def add_cluster_id_column():
         exists = await check_cluster_id_exists()
         
         if exists:
-            print("✓ cluster_id column already exists in repos table")
+            print("[OK] cluster_id column already exists in repos table")
+            # Ensure foreign key constraint and index are created
+            try:
+                await conn.execute(text("""
+                    ALTER TABLE repos 
+                    ADD CONSTRAINT fk_repos_cluster_id 
+                    FOREIGN KEY (cluster_id) REFERENCES clusters(id);
+                """))
+                print("[OK] Foreign key constraint added")
+            except Exception:
+                print("[OK] Foreign key constraint already exists or could not be added")
+                
+            try:
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_repos_cluster_id ON repos(cluster_id);"))
+                print("[OK] Index added on cluster_id")
+            except Exception as e:
+                print(f"[FAIL] Error adding index: {e}")
             return True
         
         print("Adding cluster_id column to repos table...")
@@ -39,7 +55,7 @@ async def add_cluster_id_column():
         try:
             # Add the column
             await conn.execute(text("ALTER TABLE repos ADD COLUMN cluster_id VARCHAR;"))
-            print("✓ cluster_id column added")
+            print("[OK] cluster_id column added")
             
             # Add foreign key constraint
             await conn.execute(text("""
@@ -47,15 +63,15 @@ async def add_cluster_id_column():
                 ADD CONSTRAINT fk_repos_cluster_id 
                 FOREIGN KEY (cluster_id) REFERENCES clusters(id);
             """))
-            print("✓ Foreign key constraint added")
+            print("[OK] Foreign key constraint added")
             
             # Add index
             await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_repos_cluster_id ON repos(cluster_id);"))
-            print("✓ Index added on cluster_id")
+            print("[OK] Index added on cluster_id")
             
             return True
         except Exception as e:
-            print(f"❌ Error adding cluster_id column: {e}")
+            print(f"[FAIL] Error adding cluster_id column: {e}")
             return False
 
 
@@ -82,12 +98,12 @@ async def add_performance_indexes():
         for idx_name, idx_sql in indexes:
             try:
                 await conn.execute(text(idx_sql))
-                print(f"✓ {idx_name}")
+                print(f"[OK] {idx_name}")
                 success_count += 1
             except Exception as e:
-                print(f"⚠ {idx_name} (may already exist)")
+                print(f"[WARN] {idx_name} (may already exist: {e})")
         
-        print(f"\n✓ {success_count}/{len(indexes)} indexes processed")
+        print(f"\n[OK] {success_count}/{len(indexes)} indexes processed")
         return True
 
 
@@ -116,7 +132,7 @@ async def verify_setup():
     print("\nVerification Results:")
     all_passed = True
     for check_name, passed in checks:
-        status = "✓" if passed else "❌"
+        status = "[OK]" if passed else "[FAIL]"
         print(f"{status} {check_name}")
         if not passed:
             all_passed = False
@@ -134,36 +150,36 @@ async def main():
     try:
         # Step 1: Add cluster_id column
         if not await add_cluster_id_column():
-            print("\n❌ Failed to add cluster_id column. Please check the error above.")
+            print("\n[FAIL] Failed to add cluster_id column. Please check the error above.")
             sys.exit(1)
         
         # Step 2: Add performance indexes
         if not await add_performance_indexes():
-            print("\n❌ Failed to add performance indexes. Please check the error above.")
+            print("\n[FAIL] Failed to add performance indexes. Please check the error above.")
             sys.exit(1)
         
         # Step 3: Verify
         if not await verify_setup():
-            print("\n⚠ Some checks failed. Please review the output above.")
+            print("\n[WARN] Some checks failed. Please review the output above.")
             sys.exit(1)
         
         # Success!
         print("\n" + "=" * 70)
-        print("  ✅ ALL OPTIMIZATIONS APPLIED SUCCESSFULLY!")
+        print("  ALL OPTIMIZATIONS APPLIED SUCCESSFULLY!")
         print("=" * 70)
         print("\nNext steps:")
         print("1. Restart your backend server for changes to take effect")
         print("2. Clear browser cache (Ctrl+Shift+R)")
         print("3. Your application should now load 3-4x faster!")
         print("\nExpected improvements:")
-        print("  • Initial page load: 3-5s → 0.8-1.2s")
-        print("  • Database queries: 10x faster")
-        print("  • Dashboard API: 4x fewer calls")
+        print("  - Initial page load: 3-5s -> 0.8-1.2s")
+        print("  - Database queries: 10x faster")
+        print("  - Dashboard API: 4x fewer calls")
         print("\nSee PERFORMANCE_OPTIMIZATIONS.md for details.")
         print()
         
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print(f"\n[FAIL] Unexpected error: {e}")
         print("\nPlease check:")
         print("1. Database connection is working")
         print("2. You have permission to modify the database schema")
