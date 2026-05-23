@@ -4,6 +4,7 @@ from typing import List
 from app.core.database import get_session
 from app.core.security import get_current_user, get_uid
 from app.services.vcs_service import vcs_service
+from app.core.crypto import encrypt_secret
 from app.models.repo import Repo
 from app.models.workspace import Workspace
 from app.models.event import Event
@@ -43,7 +44,7 @@ async def sync_vcs_repositories(
         workspace_result = await session.execute(select(Workspace).where(Workspace.id == request.workspace_id))
         workspace = workspace_result.scalar_one_or_none()
         if workspace:
-            workspace.access_token = request.token
+            workspace.access_token = encrypt_secret(request.token)
             workspace.last_synced_at = datetime.utcnow()
             workspace.status = "connected"
             session.add(workspace)

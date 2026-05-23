@@ -6,6 +6,12 @@ Manages repositories, processes events, executes automation rules,
 and provides real-time insights.
 """
 
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -95,11 +101,34 @@ app.include_router(members.router, prefix=settings.API_PREFIX)
 app.include_router(cloud_providers.router, prefix=settings.API_PREFIX)
 app.include_router(executor.router, prefix=settings.API_PREFIX)
 
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Optional
+from fastapi import WebSocket, WebSocketDisconnect, Query
 from app.core.websocket import manager
+from firebase_admin import auth as firebase_auth
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+):
+    try:
+        # In development mode, allow bypass if no token is passed. In production, always enforce.
+        if settings.APP_ENV != "development" or token:
+            if not token:
+                raise Exception("Session token is missing.")
+            
+            # Verify the ID token against Firebase
+            decoded_token = firebase_auth.verify_id_token(token)
+            uid = decoded_token.get("uid")
+            if not uid:
+                raise Exception("Invalid session token payload.")
+                
+    except Exception as auth_err:
+        logger.warning(f"WebSocket connection rejected: {auth_err}")
+        await websocket.accept()
+        await websocket.close(code=4001)  # 4001: Unauthorized session
+        return
+
     await manager.connect(websocket)
     try:
         while True:

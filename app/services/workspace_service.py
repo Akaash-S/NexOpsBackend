@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.workspace import Workspace
 from app.models.repo import Repo
 from app.schemas.workspace_schema import WorkspaceCreate, WorkspaceUpdate
+from app.core.crypto import encrypt_secret
 
 
 async def get_workspaces(session: AsyncSession) -> List[Workspace]:
@@ -40,6 +41,8 @@ async def update_workspace(session: AsyncSession, workspace_id: str, data: Works
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key == "access_token" and value:
+            value = encrypt_secret(value)
         setattr(workspace, key, value)
 
     # When disconnecting, clear the stored token

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: str
 
+    # Gemini AI
+    GEMINI_API_KEY: Optional[str] = None
+
     @property
     def async_database_url(self) -> str:
         """Convert standard postgresql:// URL to asyncpg driver URL.

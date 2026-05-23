@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from app.core.crypto import decrypt_secret
 
 
 class Workspace(SQLModel, table=True):
@@ -26,7 +27,11 @@ class Workspace(SQLModel, table=True):
     status: str = Field(default="connected", max_length=50) # connected | disconnected | error
     access_token: Optional[str] = Field(default=None, max_length=500)
     refresh_token: Optional[str] = Field(default=None, max_length=500)
-    last_synced_at: Optional[datetime] = Field(default=None)
+    last_synced_at: Optional[datetime] = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def decrypted_access_token(self) -> Optional[str]:
+        return decrypt_secret(self.access_token) if self.access_token else None

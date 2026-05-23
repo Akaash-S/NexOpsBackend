@@ -145,7 +145,7 @@ async def get_repo_tree(
     try:
         if repo.platform == "github":
             return await vcs_service.fetch_github_tree(
-                token=workspace.access_token,
+                token=workspace.decrypted_access_token,
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path
@@ -183,7 +183,7 @@ async def get_file_content(
     try:
         if repo.platform == "github":
             return await vcs_service.fetch_github_file_content(
-                token=workspace.access_token,
+                token=workspace.decrypted_access_token,
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path
