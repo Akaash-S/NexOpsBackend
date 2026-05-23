@@ -119,8 +119,11 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     from app.core.redis import invalidate_cache_pattern
     try:
         await invalidate_cache_pattern("cache:dashboard:*")
+        # Invalidate repo code-viewer cache on commits/updates
+        if event_type == "repo.updated" or event_type == "push":
+            await invalidate_cache_pattern(f"cache:repo:*:{repo_id}:*")
     except Exception as cache_err:
-        logger.error(f"Failed to invalidate dashboard cache: {cache_err}")
+        logger.error(f"Failed to invalidate cache: {cache_err}")
 
     # BROADCAST REAL-TIME UPDATE
     from app.core.websocket import manager

@@ -120,7 +120,14 @@ async def get_repo_tree(
     path: str = Query("", description="Folder path within the repository"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Fetch live directory structure from the VCS provider."""
+    """Fetch live directory structure from the VCS provider, cached in Redis."""
+    # Check cache first
+    from app.core.redis import get_cached_data, set_cached_data
+    cache_key = f"cache:repo:tree:{repo_id}:{path}"
+    cached_tree = await get_cached_data(cache_key)
+    if cached_tree is not None:
+        return cached_tree
+
     # 1. Get Repo metadata
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
@@ -144,12 +151,15 @@ async def get_repo_tree(
     # 3. Call VCS service
     try:
         if repo.platform == "github":
-            return await vcs_service.fetch_github_tree(
+            tree_data = await vcs_service.fetch_github_tree(
                 token=workspace.decrypted_access_token,
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path
             )
+            # Cache directory tree for 10 minutes (600s)
+            await set_cached_data(cache_key, tree_data, ttl=600)
+            return tree_data
         else:
             raise HTTPException(status_code=501, detail=f"Tree fetching not implemented for {repo.platform}")
     except Exception as e:
@@ -162,7 +172,14 @@ async def get_file_content(
     path: str,
     session: AsyncSession = Depends(get_session),
 ):
-    """Fetch live file content from the VCS provider."""
+    """Fetch live file content from the VCS provider, cached in Redis."""
+    # Check cache first
+    from app.core.redis import get_cached_data, set_cached_data
+    cache_key = f"cache:repo:file:{repo_id}:{path}"
+    cached_file = await get_cached_data(cache_key)
+    if cached_file is not None:
+        return cached_file
+
     # 1. Get Repo metadata
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
@@ -182,12 +199,15 @@ async def get_file_content(
     # 3. Call VCS service
     try:
         if repo.platform == "github":
-            return await vcs_service.fetch_github_file_content(
+            file_data = await vcs_service.fetch_github_file_content(
                 token=workspace.decrypted_access_token,
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path
             )
+            # Cache file content for 10 minutes (600s)
+            await set_cached_data(cache_key, file_data, ttl=600)
+            return file_data
         else:
             raise HTTPException(status_code=501, detail=f"File fetching not implemented for {repo.platform}")
     except Exception as e:

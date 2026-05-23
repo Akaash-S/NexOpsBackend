@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Header, HTTPException, Depends
+from fastapi import APIRouter, Request, Header, HTTPException, Depends, BackgroundTasks
 from sqlmodel import Session, select
 import hmac
 import hashlib
@@ -40,6 +40,7 @@ async def verify_signature(request: Request, x_hub_signature_256: str = Header(N
 @router.post("/github")
 async def github_webhook_handler(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_github_event: str = Header(...),
     session: Session = Depends(get_session)
 ):
@@ -120,7 +121,8 @@ async def github_webhook_handler(
     await session.commit()
     await session.refresh(new_event)
 
-    # 5. Trigger Automation Engine
-    await process_event(session, new_event)
+    # 5. Trigger Automation Engine in background
+    from app.api.routes.events import _run_automation
+    background_tasks.add_task(_run_automation, new_event.id)
 
     return {"status": "processed", "event_id": new_event.id, "type": event_type}
