@@ -13,3 +13,23 @@ from app.models.team import Team
 from app.models.dependency import Dependency
 from app.models.incident import Incident
 from app.models.deployment import Deployment
+from app.models.cloud_provider import CloudProvider
+
+# Explicitly define exports
+__all__ = [
+    "User",
+    "Workspace",
+    "WorkspaceMember",
+    "Invitation",
+    "Repo",
+    "Cluster",
+    "Alert",
+    "Event",
+    "Pipeline",
+    "Rule",
+    "Team",
+    "Dependency",
+    "Incident",
+    "Deployment",
+    "CloudProvider",
+]

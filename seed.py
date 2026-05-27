@@ -21,6 +21,9 @@ from app.models.dependency import Dependency
 from app.models.incident import Incident
 from app.models.deployment import Deployment
 from app.models.cluster import Cluster
+from app.models.cloud_provider import CloudProvider
+from app.models.workspace_member import WorkspaceMember
+from app.models.invitation import Invitation
 
 engine = create_async_engine(settings.async_database_url, echo=True)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
