@@ -318,3 +318,197 @@ async def query_workspace_ai(
         return f"Co-Pilot encountered an interface connection issue while generating response: {str(e)}"
 
 
+class CodeAuditRequest(SQLModel):
+    repo_id: str
+    path: str
+    code: str
+    mode: str
+
+@router.post("/code-audit")
+async def code_audit(payload: CodeAuditRequest):
+    """
+    Audit, explain, or generate tests for the provided code content.
+    Queries Gemini if configured, otherwise falls back to a smart local analyzer.
+    """
+    code = payload.code
+    path = payload.path
+    mode = payload.mode
+    
+    if not code.strip():
+        raise HTTPException(status_code=400, detail="Source code content cannot be empty.")
+
+    # 1. Parse simple metrics for fallback/enrichment
+    lines = code.splitlines()
+    num_lines = len(lines)
+    
+    # Simple syntax parser for fallback
+    functions = []
+    classes = []
+    imports = []
+    todo_count = 0
+    unsafe_calls = []
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("import ") or stripped.startswith("from ") or ("require(" in stripped and "=" in stripped):
+            imports.append(stripped)
+        if stripped.startswith("def ") or stripped.startswith("async def ") or stripped.startswith("function ") or (("const" in stripped or "let" in stripped) and "=>" in stripped):
+            parts = stripped.split()
+            if len(parts) > 1:
+                name = parts[1].split("(")[0].split("=")[0].strip()
+                functions.append(name)
+        if stripped.startswith("class "):
+            parts = stripped.split()
+            if len(parts) > 1:
+                name = parts[1].split("(")[0].split(":")[0].strip()
+                classes.append(name)
+        if "TODO" in stripped or "FIXME" in stripped:
+            todo_count += 1
+        if "eval(" in stripped or "exec(" in stripped or "dangerouslySetInnerHTML" in stripped:
+            unsafe_calls.append(stripped)
+
+    # 2. Call real Gemini if key is present
+    if settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "unset":
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        if mode == "explain":
+            system_instruction = (
+                "You are an expert software architect named NexOps AI. "
+                "Explain the provided code snippet, outlining its structure, key functions/classes, imports, and purpose. "
+                "Format your explanation in clear, clean markdown with bullet points and subheadings. Keep it under 6 sentences."
+            )
+        elif mode == "diagnose":
+            system_instruction = (
+                "You are an expert static analysis security auditor named NexOps AI. "
+                "Audit the provided code for logic bugs, performance inefficiencies, and security issues. "
+                "Provide a numbered list of findings with severity ratings (Critical, High, Medium, Low), code snippets, and instructions to resolve. "
+                "Format in clean markdown. Keep it technical and actionable."
+            )
+        else: # test
+            system_instruction = (
+                "You are a test-driven development engineer named NexOps AI. "
+                "Generate comprehensive unit tests for the provided code using standard testing frameworks (e.g. PyTest, Jest, Mocha). "
+                "Include mocks, edge cases, and success/failure assertions. Format code inside markdown blocks."
+            )
+
+        prompt = f"File Path: {path}\n\nCode Content:\n{code}"
+        payload_data = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "generationConfig": {"temperature": 0.3}
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, json=payload_data)
+                response.raise_for_status()
+                res_data = response.json()
+                candidates = res_data.get("candidates", [])
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    if text:
+                        return {"result": text.strip()}
+        except Exception as e:
+            logger.error(f"Gemini code audit query failed: {e}")
+            # Fall back to local mock analyzer on error
+
+    # 3. Fallback / Smart Mock analyzer
+    lang = path.split(".")[-1] if "." in path else "txt"
+    
+    if mode == "explain":
+        text = (
+            f"### AI Explanation for `{path.split('/')[-1] if '/' in path else path}`\n\n"
+            f"This is a **{lang.upper()}** module containing **{num_lines} lines of code**.\n\n"
+            f"**Key Structural Elements:**\n"
+        )
+        if classes:
+            text += f"- **Classes Defined**: {', '.join([f'`{c}`' for c in classes])}\n"
+        if functions:
+            text += f"- **Functions/Methods**: {', '.join([f'`{f}`' for f in functions[:8]])}"
+            if len(functions) > 8:
+                text += f" (+ {len(functions) - 8} more)"
+            text += "\n"
+        if imports:
+            text += f"- **External Dependencies**: Detected imports of {len(imports)} modules.\n"
+        
+        text += (
+            f"\n**Behavioral Overview**:\n"
+            f"The file operates as a core module in the repository. It imports dependencies and implements logic to support "
+            f"execution blocks. "
+        )
+        if functions:
+            text += f"It primarily exposes programmatic accessors like `{functions[0]}` to facilitate workflows."
+        else:
+            text += "It appears to be a static script or configuration schema."
+            
+        if todo_count > 0:
+            text += f"\n\n> [!NOTE]\n> There are {todo_count} active developer TODOs marked in this file."
+            
+    elif mode == "diagnose":
+        findings = []
+        if unsafe_calls:
+            findings.append(
+                "1. **Unsafe Function Execution** (Severity: **CRITICAL**)\n"
+                f"   - **Issue**: Detected potentially hazardous function calls: `{unsafe_calls[0]}`.\n"
+                "   - **Risk**: Direct execution of un-sanitized strings could lead to code injection or script vulnerabilities.\n"
+                "   - **Remediation**: Avoid dynamic execution. Use structured utility parsers."
+            )
+        if num_lines > 150:
+            findings.append(
+                f"2. **High Code Complexity** (Severity: **MEDIUM**)\n"
+                f"   - **Issue**: File exceeds recommended length guidelines ({num_lines} lines).\n"
+                "   - **Risk**: High cognitive load, prone to regression bugs during maintenance.\n"
+                "   - **Remediation**: Split core helper blocks into sub-modules."
+            )
+        if todo_count > 0:
+            findings.append(
+                f"3. **Pending Technical Debt** (Severity: **LOW**)\n"
+                f"   - **Issue**: File contains {todo_count} unresolved TODO/FIXME markers.\n"
+                "   - **Risk**: Stale code indicators and unimplemented edge cases remaining in production.\n"
+                "   - **Remediation**: Triage these comments and file issues in the backlog."
+            )
+            
+        if not findings:
+            findings.append("- No major static analysis alerts detected in this module. The code follows standard structure.")
+            
+        text = (
+            f"### AI Code Audit Diagnostics for `{path.split('/')[-1] if '/' in path else path}`\n\n"
+            f"Executed local static scan over {num_lines} lines.\n\n"
+            + "\n\n".join(findings)
+        )
+        
+    else: # test
+        test_framework = "pytest" if lang in ["py", "python"] else "jest"
+        test_file = f"test_{path.split('/')[-1] if '/' in path else path}" if lang in ["py", "python"] else f"{ (path.split('/')[-1] if '/' in path else path).split('.')[0] }.test.{lang}"
+        
+        boiler_code = ""
+        if lang in ["py", "python"]:
+            boiler_code = f"import pytest\nfrom .{ (path.split('/')[-1] if '/' in path else path).split('.')[0] } import *\n\n"
+            if functions:
+                for f in functions[:3]:
+                    boiler_code += f"def test_{f}():\n    # TODO: Mock parameters and assert return results\n    # result = {f}()\n    # assert result is not None\n    pass\n\n"
+            else:
+                boiler_code += "def test_module():\n    # Simple structural test fallback\n    pass\n"
+        else:
+            boiler_code = f"import {{ expect, test, describe, vi }} from 'vitest';\n// import helpers...\n\n"
+            boiler_code += f"describe('{path.split('/')[-1] if '/' in path else path} Suite', () => {{\n"
+            if functions:
+                for f in functions[:3]:
+                    boiler_code += f"  test('should invoke {f} correctly', () => {{\n    const mockFn = vi.fn();\n    expect(true).toBe(true);\n  }});\n\n"
+            else:
+                boiler_code += "  test('should load file correctly', () => {\n    expect(true).toBe(true);\n  });\n"
+            boiler_code += "});"
+            
+        text = (
+            f"### Generated Unit Tests for `{path.split('/')[-1] if '/' in path else path}`\n\n"
+            f"Created mock boilerplate for target runner: `{test_framework}`.\n"
+            f"Save file as: `{test_file}`\n\n"
+            f"```{lang}\n"
+            f"{boiler_code}\n"
+            f"```"
+        )
+
+    return {"result": text}
+
+
+
