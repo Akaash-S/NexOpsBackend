@@ -38,73 +38,52 @@ async def get_current_user(
     session: AsyncSession = Depends(get_session)
 ):
     """
-    Verify Firebase token AND ensure the user exists in our SQL database.
-    In development mode, falls back to a mock user if Firebase is uninitialized.
+    Verify Firebase ID token and ensure the user exists in the SQL database.
+    Any token failure raises 401 — there are no dev-mode bypasses.
     """
-    if settings.APP_ENV == "development" and credentials.credentials == "dev-dummy-token":
-        uid = "dev-user-123"
-        if uid in _user_cache:
-            return User(**_user_cache[uid])
-
-        result = await session.execute(select(User).where(User.id == uid))
-        user = result.scalars().first()
-        if not user:
-            user = User(
-                id=uid,
-                email="dev@nexops.local",
-                full_name="Local Developer",
-                avatar_url=None,
-                role="admin"
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-        _user_cache[uid] = user.model_dump()
-        return user
-
+    # Verify the Firebase ID token — unconditionally, in all environments.
     try:
-        uid = None
-        decoded_token = {}
+        decoded_token = auth.verify_id_token(credentials.credentials)
+        uid = decoded_token.get("uid")
+    except Exception as auth_err:
+        logger.warning(f"Firebase token verification failed: {auth_err}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication credentials.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-        # 1. Attempt to verify the ID token sent from the client
-        try:
-            decoded_token = auth.verify_id_token(credentials.credentials)
-            uid = decoded_token.get("uid")
-        except Exception as auth_err:
-            if settings.APP_ENV == "development":
-                logger.warning(f"Development Auth Fallback: {auth_err}")
-                uid = "dev-user-123"
-                decoded_token = {
-                    "uid": uid,
-                    "email": "dev@nexops.local",
-                    "name": "Local Developer",
-                    "picture": None
-                }
-            else:
-                raise auth_err
-        
-        if uid and uid in _user_cache:
-            return User(**_user_cache[uid])
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token payload missing UID.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-        # 2. Sync with local database
+    # Serve from cache if available
+    if uid in _user_cache:
+        return User(**_user_cache[uid])
+
+    # Sync with database
+    try:
         result = await session.execute(select(User).where(User.id == uid))
         user = result.scalars().first()
-        
+
         if not user:
-            # Create user record in our DB
+            # Create user — always with role "member" regardless of environment
             user = User(
                 id=uid,
                 email=decoded_token.get("email", ""),
-                full_name=decoded_token.get("name", "Developer"),
+                full_name=decoded_token.get("name", ""),
                 avatar_url=decoded_token.get("picture"),
-                role="admin" if settings.APP_ENV == "development" else "member"
+                role="member",
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
             logger.info(f"Created new database record for user: {uid}")
         else:
-            # Only update and commit if there is actual change
+            # Update display fields if they changed — never touch role here
             changed = False
             name = decoded_token.get("name")
             picture = decoded_token.get("picture")
@@ -114,29 +93,22 @@ async def get_current_user(
             if picture and user.avatar_url != picture:
                 user.avatar_url = picture
                 changed = True
-            if settings.APP_ENV == "development" and user.role != "admin":
-                user.role = "admin"
-                changed = True
-            
+
             if changed:
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)
-        
-        if uid:
-            _user_cache[uid] = user.model_dump()
+
+        _user_cache[uid] = user.model_dump()
         return user
-            
+
     except Exception as e:
-        logger.error(f"Authentication failed: {e}")
-        if settings.APP_ENV == "development":
-             return User(id="dev-fallback", email="dev@nexops.local", full_name="Fallback Dev", role="admin")
-             
+        logger.error(f"Database error during user sync: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired authentication credentials: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal error occurred while processing authentication.",
         )
+
 
 def get_uid(user: User = Security(get_current_user)) -> str:
     """Helper dependency to extract the user's UID from the verified User model."""

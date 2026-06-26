@@ -60,27 +60,31 @@ async def lifespan(app: FastAPI):
     logger.info("NexOps Engine shutting down...")
 
 
+# ── API docs: only available outside production ──────────────────────────
+_is_production = settings.APP_ENV == "production"
+
 # --- Create FastAPI App ---
 app = FastAPI(
     title=settings.APP_NAME,
     description="DevOps Intelligence & Automation Engine",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
 )
 
 # ── CORS Middleware ──────────────────────────────────────────────────────
+# In production CORS_ORIGINS must be set to the exact deployed frontend URL.
+# The fallback is localhost-only (safe for local development, blocks live traffic).
 origins = settings.cors_origins_list or ["http://localhost:3000", "http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    expose_headers=["Content-Length"],
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
@@ -110,18 +114,19 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: Optional[str] = Query(None),
 ):
+    """
+    WebSocket endpoint. Firebase token is always required — no dev-mode bypass.
+    """
     try:
-        # In development mode, allow bypass if no token is passed. In production, always enforce.
-        if settings.APP_ENV != "development" or token:
-            if not token:
-                raise Exception("Session token is missing.")
-            
-            # Verify the ID token against Firebase
-            decoded_token = firebase_auth.verify_id_token(token)
-            uid = decoded_token.get("uid")
-            if not uid:
-                raise Exception("Invalid session token payload.")
-                
+        if not token:
+            raise Exception("Session token is missing.")
+
+        # Verify the ID token against Firebase unconditionally
+        decoded_token = firebase_auth.verify_id_token(token)
+        uid = decoded_token.get("uid")
+        if not uid:
+            raise Exception("Invalid session token payload.")
+
     except Exception as auth_err:
         logger.warning(f"WebSocket connection rejected: {auth_err}")
         await websocket.accept()
@@ -133,12 +138,13 @@ async def websocket_endpoint(
         while True:
             # Keep connection alive and wait for client messages if needed
             data = await websocket.receive_text()
-            # Echo or process client messages (optional)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
         logger.error(f"WebSocket Error: {e}")
         manager.disconnect(websocket)
+
+
 @app.get("/health", tags=["System"])
 async def health_check():
     """Basic health check endpoint."""
@@ -155,7 +161,6 @@ async def root():
     return {
         "service": settings.APP_NAME,
         "description": "DevOps Intelligence & Automation Engine",
-        "docs": "/docs",
         "health": "/health",
         "api_prefix": settings.API_PREFIX,
     }

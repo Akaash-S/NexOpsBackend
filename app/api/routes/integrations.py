@@ -11,10 +11,55 @@ from app.models.repo import Repo
 from app.models.user import User
 from app.models.event import Event
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 import logging
+import hmac
+import hashlib
+import time
 from app.core.config import settings
+
+# ── OAuth State Token Helpers ────────────────────────────────────────────
+# State is a signed token of the form "uid:expiry:hmac" where the HMAC is
+# computed over "uid:expiry" using the ENCRYPTION_KEY as the signing secret.
+# This lets us trust the uid on the callback without storing server-side state.
+_STATE_TTL_SECONDS = 300  # 5-minute window for OAuth round-trip
+
+def _make_oauth_state(uid: str) -> str:
+    """Create a time-limited, HMAC-signed state token encoding the user's UID."""
+    expiry = int(time.time()) + _STATE_TTL_SECONDS
+    payload = f"{uid}:{expiry}"
+    sig = hmac.new(
+        settings.ENCRYPTION_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return f"{payload}:{sig}"
+
+def _verify_oauth_state(state: str) -> str:
+    """
+    Validate a state token and return the embedded uid.
+    Raises ValueError if the token is malformed, expired, or signature-invalid.
+    """
+    try:
+        uid, expiry_str, received_sig = state.rsplit(":", 2)
+    except ValueError:
+        raise ValueError("Malformed state token.")
+
+    payload = f"{uid}:{expiry_str}"
+    expected_sig = hmac.new(
+        settings.ENCRYPTION_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_sig, received_sig):
+        raise ValueError("State token signature invalid.")
+
+    if int(time.time()) > int(expiry_str):
+        raise ValueError("State token has expired.")
+
+    return uid
 
 router = APIRouter(tags=["Integrations"])
 logger = logging.getLogger("nexops.integrations")
@@ -190,42 +235,65 @@ async def sync_vcs_repositories(
 @router.get("/integrations/github/connect")
 async def github_connect(
     request: Request,
-    uid: Optional[str] = None
+    user: User = Depends(get_current_user),
 ):
     """
     Redirect to GitHub OAuth page.
+    The user must be authenticated. A signed, time-limited state token is generated
+    encoding the authenticated user's UID — their raw UID is never sent as the state.
     """
-    client_id = settings.GITHUB_CLIENT_ID or "dummy_github_client_id"
-    # Match registration on GitHub
-    redirect_uri = "http://localhost:8000/api/v1/integrations/github/callback"
-    
-    state = uid or "anonymous"
-    
+    if not settings.GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GitHub OAuth is not configured.")
+
+    # Build the callback URL from the incoming request host so it works across environments
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/v1/integrations/github/callback"
+
+    state = _make_oauth_state(user.id)
+
     github_url = (
         f"https://github.com/login/oauth/authorize"
-        f"?client_id={client_id}"
+        f"?client_id={settings.GITHUB_CLIENT_ID}"
         f"&redirect_uri={redirect_uri}"
         f"&scope=repo,user"
         f"&state={state}"
     )
     return RedirectResponse(github_url)
 
+
 @router.get("/integrations/github/callback")
 async def github_callback(
+    request: Request,
     code: Optional[str] = None,
     state: Optional[str] = None,
     session: AsyncSession = Depends(get_session)
 ):
     """
-    OAuth Callback. Exchange code for token, encrypt, save to user, and redirect.
+    OAuth Callback. Validates the signed state token, exchanges the code for an access
+    token, encrypts it, and saves it to the correct user's record.
     """
     if not code:
-        return RedirectResponse("http://localhost:3000/onboarding?error=missing_code")
+        return RedirectResponse("/onboarding?error=missing_code")
 
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="GitHub Client configuration is missing")
 
+    # Validate the signed state token — reject the callback if it's invalid or expired
+    if not state:
+        logger.warning("GitHub OAuth callback received with no state parameter.")
+        return RedirectResponse("/onboarding?error=invalid_state")
+
     try:
+        uid = _verify_oauth_state(state)
+    except ValueError as state_err:
+        logger.warning(f"GitHub OAuth callback state validation failed: {state_err}")
+        return RedirectResponse("/onboarding?error=invalid_state")
+
+    # Exchange code for access token
+    try:
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/api/v1/integrations/github/callback"
+
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 "https://github.com/login/oauth/access_token",
@@ -234,7 +302,7 @@ async def github_callback(
                     "client_id": settings.GITHUB_CLIENT_ID,
                     "client_secret": settings.GITHUB_CLIENT_SECRET,
                     "code": code,
-                    "redirect_uri": "http://localhost:8000/api/v1/integrations/github/callback"
+                    "redirect_uri": redirect_uri,
                 },
                 timeout=10.0
             )
@@ -242,35 +310,27 @@ async def github_callback(
             data = res.json()
             if "access_token" not in data:
                 logger.error(f"GitHub OAuth token exchange failed: {data}")
-                return RedirectResponse("http://localhost:3000/onboarding?error=oauth_failed")
-            
+                return RedirectResponse("/onboarding?error=oauth_failed")
+
             access_token = data["access_token"]
     except Exception as oauth_err:
         logger.error(f"GitHub OAuth code exchange failed: {oauth_err}")
-        return RedirectResponse("http://localhost:3000/onboarding?error=oauth_failed")
+        return RedirectResponse("/onboarding?error=oauth_failed")
 
-    # Encrypt the token
+    # Encrypt and save the token to the user identified by the validated state token
     encrypted_token = encrypt_secret(access_token)
 
-    # Save to user
-    user = None
-    if state and state != "anonymous":
-        user_result = await session.execute(select(User).where(User.id == state))  # type: ignore
-        user = user_result.scalar_one_or_none()
+    user_result = await session.execute(select(User).where(User.id == uid))  # type: ignore
+    user = user_result.scalar_one_or_none()
 
     if not user:
-        # Fallback: get the first user in database
-        user_result = await session.execute(select(User))  # type: ignore
-        user = user_result.scalars().first()
+        logger.error(f"GitHub OAuth callback: no user found for uid={uid} from validated state.")
+        return RedirectResponse("/onboarding?error=user_not_found")
 
-    if user:
-        user.github_access_token = encrypted_token
-        session.add(user)
-        await session.commit()  # type: ignore
-        invalidate_user_cache(user.id)
-        logger.info(f"Successfully saved encrypted access token for user {user.id}")
-    else:
-        logger.warning("No user found to save access token.")
+    user.github_access_token = encrypted_token
+    session.add(user)
+    await session.commit()  # type: ignore
+    invalidate_user_cache(user.id)
+    logger.info(f"Successfully saved encrypted GitHub access token for user {user.id}")
 
-    # Redirect to frontend onboarding page
-    return RedirectResponse("http://localhost:3000/onboarding?success=github_connected")
+    return RedirectResponse("/onboarding?success=github_connected")

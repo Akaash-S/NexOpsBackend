@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: str
 
+    # PagerDuty Webhook
+    # Required for production: if unset, the PagerDuty webhook endpoint rejects all requests.
+    PAGERDUTY_WEBHOOK_SECRET: Optional[str] = None
+
     # GitHub OAuth
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None

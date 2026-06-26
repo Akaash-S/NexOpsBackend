@@ -3,7 +3,6 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import hmac
 import hashlib
-import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -17,26 +16,73 @@ from app.services.automation_service import process_event
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 logger = logging.getLogger("nexops.webhooks")
 
-async def verify_signature(request: Request, x_hub_signature_256: Optional[str] = Header(None)):
+
+async def verify_github_signature(request: Request, x_hub_signature_256: Optional[str] = Header(None)):
     """
-    Validate the GitHub webhook signature using HMAC-SHA256.
+    Validate the GitHub webhook HMAC-SHA256 signature.
+    If GITHUB_WEBHOOK_SECRET is not configured the endpoint rejects all requests — a
+    missing secret is treated as a misconfiguration, not a reason to skip verification.
     """
     if not settings.GITHUB_WEBHOOK_SECRET:
-        logger.warning("GITHUB_WEBHOOK_SECRET not set, skipping verification.")
-        return
+        logger.error("GITHUB_WEBHOOK_SECRET is not configured — rejecting webhook request.")
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook endpoint not configured: server secret is missing."
+        )
 
     if not x_hub_signature_256:
-        raise HTTPException(status_code=401, detail="X-Hub-Signature-256 header missing")
+        raise HTTPException(status_code=401, detail="X-Hub-Signature-256 header missing.")
 
     body = await request.body()
-    signature = hmac.new(
+    expected = hmac.new(
         settings.GITHUB_WEBHOOK_SECRET.encode(),
         body,
         hashlib.sha256
     ).hexdigest()
 
-    if not hmac.compare_digest(f"sha256={signature}", x_hub_signature_256):
-        raise HTTPException(status_code=401, detail="Invalid signature")
+    if not hmac.compare_digest(f"sha256={expected}", x_hub_signature_256):
+        raise HTTPException(status_code=401, detail="Invalid signature.")
+
+
+async def verify_pagerduty_signature(request: Request):
+    """
+    Validate the PagerDuty webhook HMAC-SHA256 signature.
+    If PAGERDUTY_WEBHOOK_SECRET is not configured the endpoint rejects all requests — a
+    missing secret is treated as a misconfiguration, not a reason to skip verification.
+    """
+    if not settings.PAGERDUTY_WEBHOOK_SECRET:
+        logger.error("PAGERDUTY_WEBHOOK_SECRET is not configured — rejecting webhook request.")
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook endpoint not configured: server secret is missing."
+        )
+
+    pd_signature = request.headers.get("X-PagerDuty-Signature")
+    if not pd_signature:
+        raise HTTPException(status_code=401, detail="X-PagerDuty-Signature header missing.")
+
+    body = await request.body()
+
+    # PagerDuty sends "v1=<hex>,v1=<hex>" — validate against any v1 hash present
+    v1_hash = None
+    for segment in pd_signature.split(","):
+        segment = segment.strip()
+        if segment.startswith("v1="):
+            v1_hash = segment[3:]
+            break
+
+    if not v1_hash:
+        raise HTTPException(status_code=401, detail="No v1 signature found in X-PagerDuty-Signature.")
+
+    expected = hmac.new(
+        settings.PAGERDUTY_WEBHOOK_SECRET.encode(),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, v1_hash):
+        raise HTTPException(status_code=401, detail="Invalid PagerDuty signature.")
+
 
 @router.post("/github")
 async def github_webhook_handler(
@@ -44,7 +90,7 @@ async def github_webhook_handler(
     background_tasks: BackgroundTasks,
     x_github_event: str = Header(...),
     session: AsyncSession = Depends(get_session),
-    _ = Depends(verify_signature)
+    _ = Depends(verify_github_signature)
 ):
     """
     Real-time GitHub Webhook Handler.
@@ -56,8 +102,8 @@ async def github_webhook_handler(
 
     # 1. Extract Repository Info
     repo_data = payload.get("repository", {})
-    full_name = repo_data.get("full_name") # "owner/repo"
-    
+    full_name = repo_data.get("full_name")  # "owner/repo"
+
     if not full_name:
         return {"status": "ignored", "reason": "No repository info found in payload"}
 
@@ -79,7 +125,7 @@ async def github_webhook_handler(
         event_type = "repo.updated"
         ref = payload.get("ref", "")
         message = f"Push detected on {ref} by {payload.get('pusher', {}).get('name')}"
-        
+
         # Update repo last commit
         repo.last_commit_at = datetime.utcnow()
         session.add(repo)
@@ -104,7 +150,7 @@ async def github_webhook_handler(
             session.add(repo)
         else:
             return {"status": "ignored", "reason": f"Issue action {action} not processed"}
-    
+
     if event_type == "unknown":
         return {"status": "ignored", "reason": f"Event type {x_github_event} not mapped"}
 
@@ -132,33 +178,13 @@ async def github_webhook_handler(
 async def pagerduty_webhook_handler(
     request: Request,
     background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _ = Depends(verify_pagerduty_signature)
 ):
     """
     Ingest PagerDuty incident webhook events.
+    Signature verification is mandatory — requires PAGERDUTY_WEBHOOK_SECRET to be set.
     """
-    pd_signature = request.headers.get("X-PagerDuty-Signature")
-    pd_secret = settings.model_dump().get("PAGERDUTY_SIGNING_KEY") or settings.model_dump().get("PAGERDUTY_WEBHOOK_SECRET") or getattr(settings, "PAGERDUTY_WEBHOOK_SECRET", None)
-    
-    body = await request.body()
-    if pd_secret and pd_signature:
-        sig_hash = pd_signature.split(",")
-        v1_hash = None
-        for s in sig_hash:
-            if s.startswith("v1="):
-                v1_hash = s.split("=")[1]
-                break
-        if v1_hash:
-            import hmac
-            import hashlib
-            expected = hmac.new(
-                pd_secret.encode(),
-                body,
-                hashlib.sha256
-            ).hexdigest()
-            if not hmac.compare_digest(expected, v1_hash):
-                raise HTTPException(status_code=401, detail="Invalid PagerDuty signature")
-
     payload = await request.json()
     logger.info("Received PagerDuty Webhook payload")
 

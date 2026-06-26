@@ -124,7 +124,10 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
         "success": sum(1 for p in recent_pipelines if p.status == "success"),
         "failed": sum(1 for p in recent_pipelines if p.status == "failed"),
         "running": sum(1 for p in recent_pipelines if p.status == "running"),
-        "avg_duration": 45.0,  # Default mock duration since Deployment doesn't store duration
+        "avg_duration": round(
+            sum((p.finished_at - p.deployed_at).total_seconds() for p in recent_pipelines if p.finished_at)
+            / max(sum(1 for p in recent_pipelines if p.finished_at), 1)
+        ) if any(p.finished_at for p in recent_pipelines) else None,
     }
 
     # Recent event count (last 24h)
