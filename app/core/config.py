@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: str
 
+    # GitHub OAuth
+    GITHUB_CLIENT_ID: Optional[str] = None
+    GITHUB_CLIENT_SECRET: Optional[str] = None
+
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 

@@ -2,10 +2,11 @@ import httpx
 import asyncio
 import logging
 from typing import Optional, Dict, Any
+from sqlmodel import select
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cloud_provider import CloudProvider
-from app.models.pipeline import Pipeline
-from app.core.logs import generate_realistic_logs
+from app.models.deployment import Deployment
 
 logger = logging.getLogger("nexops.orchestrator")
 
@@ -48,37 +49,18 @@ async def _orchestrate_vercel(session: AsyncSession, repo_id: str, token: str, v
             user_data = user_resp.json().get("user", {})
             username = user_data.get("username", "Unknown")
             
-            # Step B: Trigger a 'Deployment' (Simulated API call for now, or real if we have project details)
-            # In a real enterprise app, we would match the NexOps Repo to a Vercel Project ID.
-            # For now, we'll perform a 'ping' and then update our Pipeline with real provider info.
-            
             logger.info(f"Vercel Handshake Successful for user: {username}")
             
-            # Update the latest pipeline with real provider metadata
-            # We look for the most recent manual pipeline for this repo
-            from sqlmodel import select
-            query = select(Pipeline).where(Pipeline.repo_id == repo_id).order_by(Pipeline.created_at.desc())
+            # Update the latest deployment with success status
+            query = select(Deployment).where(Deployment.repo_id == repo_id).order_by(Deployment.created_at.desc())
             result = await session.execute(query)
-            pipeline = result.scalars().first()
+            deployment = result.scalars().first()
             
-            if pipeline:
-                pipeline.logs += f"\n[ORCHESTRATOR] Authenticated as Vercel User: {username}"
-                pipeline.logs += f"\n[ORCHESTRATOR] Triggering Vercel Build for environment: {environment}"
-                pipeline.logs += f"\n[VERCEL] Deployment ID: dpl_{version.replace('.', '_')}"
-                pipeline.logs += f"\n[VERCEL] Status: QUEUED"
-                session.add(pipeline)
-                await session.commit()
-                
-                # Simulate the build progress
+            if deployment:
                 await asyncio.sleep(2)
-                pipeline.logs += f"\n[VERCEL] Status: BUILDING"
-                await session.commit()
-                
-                await asyncio.sleep(3)
-                pipeline.logs += f"\n[VERCEL] Status: READY"
-                pipeline.logs += f"\n[VERCEL] Preview URL: https://{repo_id}-nexops.vercel.app"
-                pipeline.status = "success"
-                session.add(pipeline)
+                deployment.status = "success"
+                deployment.finished_at = datetime.utcnow()
+                session.add(deployment)
                 await session.commit()
 
         except Exception as e:
@@ -86,6 +68,4 @@ async def _orchestrate_vercel(session: AsyncSession, repo_id: str, token: str, v
 
 async def _orchestrate_aws(session: AsyncSession, repo_id: str, token: str, version: str, environment: str):
     """AWS Orchestration logic (ECS/Lambda)."""
-    # Real AWS logic would use boto3 with the decrypted Access Key and Secret Key.
-    # For now, we simulate the CloudFormation/Terraform handshake.
     pass

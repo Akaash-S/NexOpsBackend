@@ -22,5 +22,8 @@ class User(SQLModel, table=True):
     avatar_url: Optional[str] = Field(default=None, max_length=500)
     role: str = Field(default="member")  # admin | lead | member
     
+    github_access_token: Optional[str] = Field(default=None)
+    onboarding_completed: bool = Field(default=False)
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

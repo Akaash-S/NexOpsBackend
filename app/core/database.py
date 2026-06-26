@@ -3,6 +3,7 @@ NexOps Database Engine
 Async PostgreSQL connection pool using SQLModel + SQLAlchemy async.
 """
 
+from typing import AsyncGenerator
 from sqlmodel import SQLModel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.core.config import settings
@@ -39,10 +40,11 @@ async def init_db():
         await conn.run_sync(SQLModel.metadata.create_all)
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Dependency injection: yields an async DB session per request."""
     async with async_session() as session:
         try:
             yield session
         finally:
             await session.close()
+

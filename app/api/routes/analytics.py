@@ -16,35 +16,35 @@ from app.core.redis import get_cached_data, set_cached_data
 from app.models.repo import Repo
 from app.models.alert import Alert
 from app.models.event import Event
-from app.models.pipeline import Pipeline
+from app.models.deployment import Deployment
 from app.schemas.analytics_schema import DashboardStats, ActivityResponse, ActivityPoint, DashboardSummary
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 async def _calculate_dashboard_stats(session: AsyncSession) -> DashboardStats:
-    """Calculate aggregated top-level metrics in a single database round-trip."""
+    """Calculate aggregated top-level metrics in a single database round-trip using deployments."""
     avg_health_sub = select(func.avg(Repo.health_score)).scalar_subquery()
     alerts_sub = select(func.count(Alert.id)).where(
         Alert.resolved == False,
         Alert.severity.in_(["critical", "high"])
     ).scalar_subquery()
     
-    pipeline_success_sub = select(func.count(Pipeline.id)).where(
-        Pipeline.status == "success"
+    deployment_success_sub = select(func.count(Deployment.id)).where(
+        Deployment.status == "success"
     ).scalar_subquery()
-    pipeline_total_sub = select(func.count(Pipeline.id)).where(
-        Pipeline.status.in_(["success", "failed"])
+    deployment_total_sub = select(func.count(Deployment.id)).where(
+        Deployment.status.in_(["success", "failed"])
     ).scalar_subquery()
     
-    running_sub = select(func.count(Pipeline.id)).where(
-        Pipeline.status == "running"
+    running_sub = select(func.count(Deployment.id)).where(
+        Deployment.status == "running"
     ).scalar_subquery()
 
     query = select(
         avg_health_sub.label("avg_health"),
         alerts_sub.label("vulnerability_index"),
-        pipeline_success_sub.label("pipeline_success"),
-        pipeline_total_sub.label("pipeline_total"),
+        deployment_success_sub.label("deployment_success"),
+        deployment_total_sub.label("deployment_total"),
         running_sub.label("running_count")
     )
     result = await session.execute(query)
@@ -52,8 +52,8 @@ async def _calculate_dashboard_stats(session: AsyncSession) -> DashboardStats:
     
     avg_health = float(row.avg_health) if row and row.avg_health is not None else 100.0
     vulnerability_index = row.vulnerability_index if row and row.vulnerability_index is not None else 0
-    p_success = row.pipeline_success or 0
-    p_total = row.pipeline_total or 0
+    p_success = row.deployment_success or 0
+    p_total = row.deployment_total or 0
     running_count = row.running_count or 0
     
     success_rate = (p_success / p_total * 100) if p_total > 0 else 100.0
@@ -83,15 +83,13 @@ async def get_dashboard_summary(
     if cached:
         return DashboardSummary(**cached)
 
-    from app.models.cluster import Cluster
     from app.services.repo_service import get_repos
     from app.services.alert_service import get_alerts
-    from app.services.cluster_service import get_clusters
     
     # Execute database queries
     repos = await get_repos(session, workspace_id=workspace_id, limit=100)
     alerts = await get_alerts(session, resolved=False, limit=50)
-    clusters = await get_clusters(session, workspace_id) if workspace_id else []
+    clusters = [] # Clusters table and endpoints are out of scope / stripped.
     
     # Calculate stats using consolidated database aggregates
     stats = await _calculate_dashboard_stats(session)

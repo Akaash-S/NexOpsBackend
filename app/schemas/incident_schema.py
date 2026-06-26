@@ -20,3 +20,16 @@ class IncidentResponse(IncidentBase):
     resolved_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    candidate_causes: List["CandidateCauseResponse"] = []
+
+class CandidateCauseResponse(BaseSchema):
+    id: str
+    incident_id: str
+    repo_id: str
+    event_id: Optional[str] = None
+    score: float
+    reason: str
+    confirmed: Optional[bool] = None
+    confirmed_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime

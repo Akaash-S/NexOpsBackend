@@ -12,44 +12,18 @@ from app.core.config import settings
 from app.models.repo import Repo
 from app.models.event import Event
 from app.models.alert import Alert
-from app.models.rule import Rule
-from app.models.pipeline import Pipeline
 from app.models.user import User
-from app.models.team import Team
-from app.models.workspace import Workspace
 from app.models.dependency import Dependency
 from app.models.incident import Incident
 from app.models.deployment import Deployment
-from app.models.cluster import Cluster
-from app.models.cloud_provider import CloudProvider
-from app.models.workspace_member import WorkspaceMember
-from app.models.invitation import Invitation
 
 engine = create_async_engine(settings.async_database_url, echo=True)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-# ── Workspace Data ──────────────────────────────────────────────────────
-WORKSPACES = [
-    {"id": "ws-1", "name": "Frontend Platform", "color": "blue", "description": "Core UI components and micro-frontends"},
-    {"id": "ws-2", "name": "Data Infrastructure", "color": "purple", "description": "Pipelines and warehousing"},
-    {"id": "ws-3", "name": "Security & Compliance", "color": "red", "description": "Audit logs and threat monitoring"},
-]
-
-# ── User & Team Data ─────────────────────────────────────────────────────
+# ── User Data ─────────────────────────────────────────────────────
 USERS = [
     {"full_name": "Akaash S", "email": "akaash@nexops.io", "role": "admin", "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Akaash"},
     {"full_name": "Sarah Chen", "email": "sarah@nexops.io", "role": "lead", "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah"},
-]
-
-TEAMS = [
-    {"name": "Platform Engineering", "description": "Core infrastructure and developer experience", "member_count": 8, "repo_count": 12, "health_score": 94.5},
-    {"name": "Security & Compliance", "description": "Threat monitoring and audit readiness", "member_count": 4, "repo_count": 5, "health_score": 88.0},
-]
-
-# ── Cluster Data ────────────────────────────────────────────────────────
-CLUSTERS = [
-    {"id": "cluster-1", "workspace_id": "ws-1", "name": "NexOps Core", "description": "Primary platform services", "color": "blue"},
-    {"id": "cluster-2", "workspace_id": "ws-1", "name": "Frontend Edge", "description": "UI and CDN layers", "color": "emerald"},
 ]
 
 # ── Repository Seed Data ─────────────────────────────────────────────────
@@ -111,64 +85,6 @@ REPOS = [
         "ci_status": "failing",
         "health_score": 45.0,
         "vulnerabilities": 5,
-    },
-]
-
-# ── Automation Rules ─────────────────────────────────────────────────────
-RULES = [
-    {
-        "name": "CI Failure Alert",
-        "description": "Create a high-severity alert when any CI pipeline fails",
-        "condition_type": "ci.failed",
-        "condition_config": [], # No extra filters
-        "action_config": [
-            {
-                "type": "create_alert",
-                "params": {
-                    "severity": "high",
-                    "category": "ci",
-                    "title": "CI Pipeline Failed",
-                    "message": "A CI pipeline has failed. Build is broken — merges are blocked."
-                }
-            },
-            {
-                "type": "update_repo",
-                "params": {"ci_status": "failing"}
-            }
-        ],
-        "is_active": True,
-    },
-    {
-        "name": "Auto-Resolve on Pass",
-        "description": "Mark CI as passing when pipeline succeeds",
-        "condition_type": "ci.success",
-        "condition_config": [],
-        "action_config": [
-            {
-                "type": "update_repo",
-                "params": {"ci_status": "passing"}
-            }
-        ],
-        "is_active": True,
-    }
-]
-
-# ── Pipelines ────────────────────────────────────────────────────────────
-PIPELINES = [
-    {
-        "repo_id": "repo-001", 
-        "name": "Build & Test", 
-        "status": "success", 
-        "duration": 124.5, 
-        "branch": "main", 
-        "trigger": "push",
-        "environment": "production",
-        "commit_hash": "a1b2c3d4e5f6g7h8i9j0",
-        "stages": [
-            {"name": "Lint", "status": "success", "duration": 12.5},
-            {"name": "Test", "status": "success", "duration": 85.0},
-            {"name": "Build", "status": "success", "duration": 27.0}
-        ]
     },
 ]
 
@@ -243,52 +159,24 @@ DEPLOYMENTS = [
 async def seed():
     """Seed the database with sample data."""
     print("Starting database seed process...")
+    from sqlalchemy import text
     async with engine.begin() as conn:
-        # Drop all tables and recreate to apply model changes
+        # Drop all tables manually with CASCADE to clean up orphan tables and foreign keys
+        for table in ["candidate_causes", "deployments", "incidents", "dependencies", "alerts", "events", "repos", "users", "pipelines", "rules", "workspace_members", "invitations", "teams", "clusters", "workspaces"]:
+            await conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+        # Drop all remaining tables and recreate to apply model changes
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
 
     async with session_factory() as session:
-        print("Seeding Workspaces...")
-        for data in WORKSPACES: session.add(Workspace(**data))
-        await session.commit()
-
-        print("Seeding Users & Teams...")
-        users = []
+        print("Seeding Users...")
         for data in USERS:
             u = User(**data)
             session.add(u)
-            users.append(u)
-        for data in TEAMS: session.add(Team(**data))
-        await session.commit()
-
-        print("Seeding Workspace Memberships...")
-        # Link Akaash to all workspaces as Admin
-        # Link Sarah to Frontend Platform as Lead
-        from app.models.workspace_member import WorkspaceMember
-        memberships = [
-            WorkspaceMember(workspace_id="ws-1", user_id=users[0].id, role="admin"),
-            WorkspaceMember(workspace_id="ws-2", user_id=users[0].id, role="admin"),
-            WorkspaceMember(workspace_id="ws-3", user_id=users[0].id, role="admin"),
-            WorkspaceMember(workspace_id="ws-1", user_id=users[1].id, role="lead"),
-        ]
-        for m in memberships: session.add(m)
-        await session.commit()
-
-        print("Seeding Clusters...")
-        for data in CLUSTERS: session.add(Cluster(**data))
         await session.commit()
 
         print("Seeding Repositories...")
         for data in REPOS: session.add(Repo(**data))
-        await session.commit()
-
-        print("Seeding Rules...")
-        for data in RULES: session.add(Rule(**data))
-        await session.commit()
-
-        print("Seeding Pipelines...")
-        for data in PIPELINES: session.add(Pipeline(**data))
         await session.commit()
 
         print("Seeding Alerts...")

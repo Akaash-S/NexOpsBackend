@@ -13,6 +13,7 @@ class UserResponse(BaseSchema):
     full_name: str
     avatar_url: Optional[str] = None
     role: str
+    onboarding_completed: bool
     created_at: datetime
 
 

@@ -21,3 +21,4 @@ python-dateutil
 httpx
 firebase-admin
 cryptography
+pyyaml

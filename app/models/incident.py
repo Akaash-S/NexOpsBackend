@@ -19,7 +19,7 @@ class Incident(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
-    cluster_id: Optional[str] = Field(default=None, foreign_key="clusters.id", index=True)
+    cluster_id: Optional[str] = Field(default=None, index=True)
     
     title: str = Field(max_length=255)
     description: Optional[str] = Field(default=None, max_length=1000)

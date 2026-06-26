@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI):
     # Initialize Firebase Admin
     init_firebase()
 
+    # Initialize Redis check
+    from app.core.redis import init_redis
+    await init_redis()
+
     # Initialize database tables
     await init_db()
     logger.info("Database tables initialized")
@@ -79,25 +83,19 @@ app.add_middleware(
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, rules, insights, users, teams, workspaces, pipelines, analytics, integrations, webhooks, dependencies, clusters, incidents, deployments, members, cloud_providers, executor
+from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, cloud_providers, executor
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
 app.include_router(alerts.router, prefix=settings.API_PREFIX)
-app.include_router(rules.router, prefix=settings.API_PREFIX)
 app.include_router(insights.router, prefix=settings.API_PREFIX)
 app.include_router(users.router, prefix=settings.API_PREFIX)
-app.include_router(teams.router, prefix=settings.API_PREFIX)
-app.include_router(workspaces.router, prefix=settings.API_PREFIX)
-app.include_router(pipelines.router, prefix=settings.API_PREFIX)
 app.include_router(analytics.router, prefix=settings.API_PREFIX)
 app.include_router(integrations.router, prefix=settings.API_PREFIX)
 app.include_router(webhooks.router, prefix=settings.API_PREFIX)
 app.include_router(dependencies.router, prefix=settings.API_PREFIX)
-app.include_router(clusters.router, prefix=settings.API_PREFIX)
 app.include_router(incidents.router, prefix=settings.API_PREFIX)
 app.include_router(deployments.router, prefix=settings.API_PREFIX)
-app.include_router(members.router, prefix=settings.API_PREFIX)
 app.include_router(cloud_providers.router, prefix=settings.API_PREFIX)
 app.include_router(executor.router, prefix=settings.API_PREFIX)
 

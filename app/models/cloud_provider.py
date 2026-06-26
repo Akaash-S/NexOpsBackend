@@ -18,7 +18,7 @@ class CloudProvider(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
-    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    workspace_id: str = Field(index=True)
     
     name: str = Field(max_length=100) # User-defined name (e.g. "Main Vercel Account")
     type: str = Field(index=True) # vercel | aws | netlify | render | railway

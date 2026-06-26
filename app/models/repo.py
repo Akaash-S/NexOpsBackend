@@ -14,15 +14,15 @@ class Repo(SQLModel, table=True):
     __tablename__ = "repos"
     
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True
 
     id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         primary_key=True,
         index=True,
     )
-    workspace_id: Optional[str] = Field(default=None, foreign_key="workspaces.id", index=True)
-    cluster_id: Optional[str] = Field(default=None, foreign_key="clusters.id", index=True)
+    workspace_id: Optional[str] = Field(default=None, index=True)
+    cluster_id: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True, max_length=255)
     platform: str = Field(
         sa_column=Column(String, nullable=False, default="github")

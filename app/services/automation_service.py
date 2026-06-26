@@ -1,7 +1,6 @@
 """
 Automation Service — THE CORE ENGINE (Refactored for Multi-Action Support)
-Processes incoming events, matches them against active rules,
-and executes the corresponding actions.
+Processes incoming events and executes the corresponding actions.
 """
 
 import logging
@@ -11,14 +10,13 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import Event
-from app.models.rule import Rule
 from app.services.alert_service import create_alert_from_rule
 from app.services.repo_service import update_repo_state
 from app.services.insight_service import calculate_health_score
 
 logger = logging.getLogger("nexops.automation")
 
-# Default reactions mapping remains similar but uses the new execution flow
+# Default reactions mapping
 DEFAULT_REACTIONS = {
     "ci.failed": [
         {"type": "create_alert", "params": {"severity": "high", "category": "ci", "title": "CI Pipeline Failed"}},
@@ -49,26 +47,13 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
 
     logger.info(f"Intelligence Engine Processing: {event.type} for repo {event.repo_id}")
 
-    # 1. Evaluate Rules
-    matched_rules = await _find_matching_rules(session, event)
-    actions_taken["rules_matched"] = len(matched_rules)
+    # Evaluate default reactions directly
+    reactions = DEFAULT_REACTIONS.get(event.type, [])
+    for action in reactions:
+        await _execute_single_action(session, action, event)
+        actions_taken["total_actions"] += 1
 
-    if matched_rules:
-        for rule in matched_rules:
-            for action in (rule.action_config or []):
-                await _execute_single_action(session, action, rule, event)
-                actions_taken["total_actions"] += 1
-            rule.execution_count += 1
-            rule.last_triggered_at = datetime.utcnow()
-            session.add(rule)
-    else:
-        # Fallback to default reactions
-        reactions = DEFAULT_REACTIONS.get(event.type, [])
-        for action in reactions:
-            await _execute_single_action(session, action, None, event)
-            actions_taken["total_actions"] += 1
-
-    # 2. Impact Propagation (KEY TRANSFORMATION)
+    # 2. Impact Propagation
     # If the event is a failure (CI/Deploy), propagate impact
     if event.type in ["ci.failed", "deploy.failed"] or event.severity in ["error", "critical"]:
         # Traverse dependencies and update downstream health
@@ -98,11 +83,6 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     # 3. Recalculate health score for the source repo
     try:
         await calculate_health_score(session, event.repo_id)
-        from app.models.repo import Repo as RepoModel
-        repo_obj = await session.get(RepoModel, event.repo_id)
-        if repo_obj and repo_obj.cluster_id:
-            from app.services.cluster_service import recalculate_cluster_health
-            await recalculate_cluster_health(session, repo_obj.cluster_id)
     except Exception as e:
         logger.error(f"Health score recalculation failed: {e}")
 
@@ -143,61 +123,12 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     logger.info(f"Intelligence loop complete: {actions_taken}")
     return actions_taken
 
-async def _find_matching_rules(session: AsyncSession, event: Event) -> List[Rule]:
-    """Find all active rules whose condition_type matches the event type."""
-    query = select(Rule).where(
-        Rule.is_active == True,
-        Rule.condition_type == event.type,
-    )
-    result = await session.execute(query)
-    rules = list(result.scalars().all())
-
-    # Advanced filtering based on condition_config list
-    filtered = []
-    for rule in rules:
-        if not rule.condition_config:
-            filtered.append(rule)
-            continue
-
-        match = True
-        for cond in rule.condition_config:
-            field = cond.get("field")
-            op = cond.get("operator")
-            val = cond.get("value")
-
-            # Check if field exists in event or payload
-            actual_val = getattr(event, field, None)
-            if actual_val is None and event.payload:
-                actual_val = event.payload.get(field)
-
-            if not _evaluate_condition(actual_val, op, val):
-                match = False
-                break
-        
-        if match:
-            filtered.append(rule)
-
-    return filtered
-
-def _evaluate_condition(actual: Any, operator: str, expected: Any) -> bool:
-    """Evaluate a single condition logic gate."""
-    if actual is None:
-        return False
-    try:
-        if operator == "equals": return str(actual) == str(expected)
-        if operator == "contains": return str(expected) in str(actual)
-        if operator == "greater_than": return float(actual) > float(expected)
-        if operator == "less_than": return float(actual) < float(expected)
-    except (ValueError, TypeError):
-        return False
-    return False
-
-async def _execute_single_action(session: AsyncSession, action: Dict[str, Any], rule: Optional[Rule], event: Event):
-    """Execute a single action from a rule or default reaction."""
+async def _execute_single_action(session: AsyncSession, action: Dict[str, Any], event: Event):
+    """Execute a single action from a default reaction."""
     a_type = action.get("type")
     params = action.get("params", {})
     
-    rule_name = rule.name if rule else "Default Reaction"
+    rule_name = "Default Reaction"
     logger.info(f"Executing action: {a_type} (from {rule_name})")
 
     if a_type == "create_alert":

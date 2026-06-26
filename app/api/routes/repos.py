@@ -9,10 +9,11 @@ from sqlmodel import select, or_
 
 from app.core.database import get_session
 from app.models.repo import Repo
-from app.models.workspace import Workspace
+from app.models.user import User
 from app.schemas.repo_schema import RepoCreate, RepoUpdate, RepoResponse
 from app.services import repo_service
 from app.services.vcs_service import vcs_service
+from app.core.crypto import decrypt_secret
 
 router = APIRouter(prefix="/repos", tags=["Repositories"])
 
@@ -91,27 +92,25 @@ async def update_repo(
     if not old_repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    old_cluster_id = old_repo.cluster_id
-    
     # Update the repo
     repo = await repo_service.update_repo(session, repo_id, data)
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # If cluster_id changed, recalculate health for both old and new clusters
-    new_cluster_id = repo.cluster_id
-    if old_cluster_id != new_cluster_id:
-        from app.services import cluster_service
-        
-        # Recalculate old cluster health (if it had one)
-        if old_cluster_id:
-            await cluster_service.recalculate_cluster_health(session, old_cluster_id)
-        
-        # Recalculate new cluster health (if assigned to one)
-        if new_cluster_id:
-            await cluster_service.recalculate_cluster_health(session, new_cluster_id)
-    
     return repo
+
+
+@router.get("/{repo_id}/blast-radius")
+async def get_repo_blast_radius(
+    repo_id: str,
+    session: AsyncSession = Depends(get_session)
+):
+    """Calculate repository blast radius and risk score."""
+    repo = await repo_service.get_repo_by_id(session, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    from app.services.impact_service import calculate_blast_radius
+    return await calculate_blast_radius(session, repo_id)
 
 
 @router.get("/{repo_id}/tree")
@@ -134,25 +133,21 @@ async def get_repo_tree(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 2. Get Workspace for token
-    if not repo.workspace_id:
-        raise HTTPException(status_code=400, detail="Repository is not linked to a workspace")
+    # 2. Get User for token
+    user_result = await session.execute(select(User).where(User.github_access_token != None))
+    user = user_result.scalars().first()
     
-    ws_result = await session.execute(select(Workspace).where(Workspace.id == repo.workspace_id))
-    workspace = ws_result.scalar_one_or_none()
-    
-    if not workspace or not workspace.access_token:
-        # Fallback to mock if no token, but here we want to solve it properly
+    if not user or not user.github_access_token:
         raise HTTPException(
             status_code=401, 
-            detail="VCS integration not authenticated. Please re-sync your workspace on the Integrations page to enable live code viewing."
+            detail="VCS integration not authenticated. Please sync your account on the Integrations page to enable live code viewing."
         )
 
     # 3. Call VCS service
     try:
         if repo.platform == "github":
             tree_data = await vcs_service.fetch_github_tree(
-                token=workspace.decrypted_access_token,
+                token=decrypt_secret(user.github_access_token),
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path
@@ -186,21 +181,21 @@ async def get_file_content(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 2. Get Workspace for token
-    ws_result = await session.execute(select(Workspace).where(Workspace.id == repo.workspace_id))
-    workspace = ws_result.scalar_one_or_none()
+    # 2. Get User for token
+    user_result = await session.execute(select(User).where(User.github_access_token != None))
+    user = user_result.scalars().first()
     
-    if not workspace or not workspace.access_token:
+    if not user or not user.github_access_token:
         raise HTTPException(
             status_code=401, 
-            detail="VCS integration not authenticated. Please re-sync your workspace on the Integrations page to enable live code viewing."
+            detail="VCS integration not authenticated. Please sync your account on the Integrations page to enable live code viewing."
         )
 
     # 3. Call VCS service
     try:
         if repo.platform == "github":
             file_data = await vcs_service.fetch_github_file_content(
-                token=workspace.decrypted_access_token,
+                token=decrypt_secret(user.github_access_token),
                 owner=repo.owner or "unknown",
                 repo=repo.name,
                 path=path

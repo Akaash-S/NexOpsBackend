@@ -10,8 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.repo import Repo
 from app.models.dependency import Dependency
-from app.services.repo_service import update_repo_state
-from app.services.insight_service import calculate_health_score
 
 logger = logging.getLogger("nexops.impact")
 
@@ -33,7 +31,6 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
 
     logger.info(f"Starting impact propagation from {root_repo_id} (Level: {impact_level})")
 
-    impacted_clusters = set()
     while to_visit:
         current_repo_id = to_visit.pop(0)
         if current_repo_id in visited:
@@ -62,21 +59,10 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
                     if new_health < 50:
                         repo.ci_status = "failing"
                     
-                    if repo.cluster_id:
-                        impacted_clusters.add(repo.cluster_id)
-                    
                     session.add(repo)
                     to_visit.append(downstream_repo_id)
 
     await session.commit()
-
-    # RECALCULATE CLUSTER HEALTH FOR ALL IMPACTED CLUSTERS
-    if impacted_clusters:
-        from app.services.cluster_service import recalculate_cluster_health
-        logger.info(f"Recalculating health for {len(impacted_clusters)} impacted clusters")
-        for cluster_id in impacted_clusters:
-            await recalculate_cluster_health(session, cluster_id)
-
     logger.info(f"Impact propagation complete. Affected {len(visited) - 1} downstream repos.")
 
 async def get_downstream_repos(session: AsyncSession, repo_id: str) -> List[str]:
@@ -98,3 +84,37 @@ async def get_downstream_repos(session: AsyncSession, repo_id: str) -> List[str]
     
     visited.remove(repo_id)
     return list(visited)
+
+async def calculate_blast_radius(session: AsyncSession, repo_id: str) -> dict:
+    """
+    Calculate the blast radius risk score and risk basis for a repository.
+    """
+    # Walk direct and indirect downstream
+    direct_query = select(Dependency).where(Dependency.target_repo_id == repo_id)
+    direct_result = await session.execute(direct_query)
+    direct_repos = [dep.source_repo_id for dep in direct_result.scalars().all()]
+    
+    # All downstream (direct + indirect)
+    all_downstream = await get_downstream_repos(session, repo_id)
+    indirect_repos = [r for r in all_downstream if r not in direct_repos]
+    
+    # Risk score calculation (max 100)
+    score = min(100.0, len(direct_repos) * 25.0 + len(indirect_repos) * 10.0)
+    
+    # Formulate basis explanation
+    if not all_downstream:
+        basis = "Low risk. No downstream services depend on this repository."
+        score = 0.0
+    else:
+        basis = (
+            f"Risk score of {score:.1f} based on {len(all_downstream)} downstream services: "
+            f"{len(direct_repos)} direct dependencies ({', '.join(direct_repos[:3])}{'...' if len(direct_repos) > 3 else ''}) and "
+            f"{len(indirect_repos)} indirect dependencies."
+        )
+        
+    return {
+        "risk_score": score,
+        "risk_basis": basis,
+        "downstream_count": len(all_downstream),
+        "downstream_repos": all_downstream
+    }
