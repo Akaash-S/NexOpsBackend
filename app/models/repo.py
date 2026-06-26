@@ -42,11 +42,14 @@ class Repo(SQLModel, table=True):
     owner: Optional[str] = Field(default=None, max_length=100)
 
     # CI/CD Status
-    ci_status: str = Field(default="passing")  # passing | failing | running | pending
+    ci_status: str = Field(default="unknown")  # passing | failing | running | unknown
 
     # Health Intelligence
     health_score: float = Field(default=100.0)
     vulnerabilities: int = Field(default=0)
+
+    # GitHub-native timestamp (last push/update on GitHub, distinct from NexOps' own updated_at)
+    github_updated_at: Optional[datetime] = Field(default=None)
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)

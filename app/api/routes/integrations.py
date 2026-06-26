@@ -113,11 +113,16 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             
             is_new = False
             if repo:
-                # Update existing repo
+                # Update existing repo — propagate all real GitHub fields
                 repo.description = repo_data.description
                 repo.language = repo_data.language
                 repo.default_branch = repo_data.default_branch
                 repo.owner = repo_data.owner
+                repo.open_issues = repo_data.open_issues
+                repo.stars = repo_data.stars
+                repo.forks = repo_data.forks
+                repo.last_commit_at = repo_data.last_commit_at
+                repo.github_updated_at = repo_data.github_updated_at
                 repo.updated_at = datetime.utcnow()
             else:
                 # Create new repo
@@ -141,7 +146,20 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 )
                 session.add(sync_event)
         
-        # 3. Parse nexops.yaml for all repositories to build real Dependency rows
+        # 3. Fetch real CI status for all GitHub repos
+        if request.provider == "github":
+            for repo in synced_repos:
+                ci_status = await vcs_service.fetch_github_ci_status(
+                    token=token,
+                    owner=repo.owner or "unknown",
+                    repo=repo.name
+                )
+                repo.ci_status = ci_status
+                session.add(repo)
+                logger.info(f"CI status for {repo.owner}/{repo.name}: {ci_status}")
+            await session.flush()  # type: ignore
+        
+        # 4. Parse nexops.yaml for all repositories to build real Dependency rows
         if request.provider == "github":
             import yaml
             from app.models.dependency import Dependency

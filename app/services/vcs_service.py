@@ -107,6 +107,56 @@ class VCService:
                 "size": data.get("size")
             }
 
+    @staticmethod
+    async def fetch_github_ci_status(token: str, owner: str, repo: str) -> str:
+        """
+        Fetch the most recent workflow run status from GitHub Actions.
+        Returns one of: "passing", "failing", "running", "unknown".
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "NexOps-Intelligence-Engine"
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=headers,
+                    params={"per_page": 1, "page": 1}
+                )
+                if response.status_code == 404:
+                    return "unknown"
+                response.raise_for_status()
+                data = response.json()
+                runs = data.get("workflow_runs", [])
+                if not runs:
+                    return "unknown"
+
+                run = runs[0]
+                status = run.get("status")
+                conclusion = run.get("conclusion")
+
+                if status is None:
+                    return "unknown"
+                if status != "completed":
+                    return "running"
+                if conclusion == "success":
+                    return "passing"
+                if conclusion in ("failure", "timed_out", "action_required"):
+                    return "failing"
+                return "unknown"
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 409:
+                return "unknown"
+            logger.warning(f"CI status check failed for {owner}/{repo}: HTTP {e.response.status_code}")
+            return "unknown"
+        except Exception as e:
+            logger.warning(f"CI status check failed for {owner}/{repo}: {e}")
+            return "unknown"
+
     @classmethod
     async def sync_repositories(cls, provider: str, token: str, workspace_id: str) -> List[Repo]:
         raw_repos = []
@@ -132,6 +182,24 @@ class VCService:
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
+
+            if provider == "github":
+                repo.open_issues = raw.get("open_issues_count", 0)
+                repo.stars = raw.get("stargazers_count", 0)
+                repo.forks = raw.get("forks_count", 0)
+                pushed = raw.get("pushed_at")
+                if pushed:
+                    try:
+                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        pass
+                gh_updated = raw.get("updated_at")
+                if gh_updated:
+                    try:
+                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        pass
+
             sync_repos.append(repo)
             
         return sync_repos
