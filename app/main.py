@@ -20,6 +20,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.security import init_firebase
+from app.core.rate_limit import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -93,6 +97,11 @@ app.add_middleware(
     expose_headers=["Content-Length"],
 )
 
+# ── Rate Limiting ───────────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # ── Register API Routes ─────────────────────────────────────────────────
 from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, cloud_providers, executor
 
@@ -152,6 +161,7 @@ async def websocket_endpoint(
 
 
 @app.get("/health", tags=["System"])
+@limiter.exempt
 async def health_check():
     """Basic health check endpoint."""
     return {

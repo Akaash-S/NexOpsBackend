@@ -22,3 +22,4 @@ httpx
 firebase-admin
 cryptography
 pyyaml
+slowapi

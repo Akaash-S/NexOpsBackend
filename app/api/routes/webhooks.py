@@ -9,6 +9,7 @@ from typing import Optional
 
 from app.core.database import get_session
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.models.event import Event
 from app.models.repo import Repo
 from app.services.automation_service import process_event
@@ -85,6 +86,7 @@ async def verify_pagerduty_signature(request: Request):
 
 
 @router.post("/github")
+@limiter.limit("60/minute")
 async def github_webhook_handler(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -175,6 +177,7 @@ async def github_webhook_handler(
 
 
 @router.post("/pagerduty")
+@limiter.limit("60/minute")
 async def pagerduty_webhook_handler(
     request: Request,
     background_tasks: BackgroundTasks,

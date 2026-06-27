@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from fastapi.responses import RedirectResponse
-from sqlmodel import select
+from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from app.core.database import get_session
 from app.core.security import get_current_user, get_uid, invalidate_user_cache
 from app.services.vcs_service import vcs_service
 from app.core.crypto import encrypt_secret
+from app.core.rate_limit import limiter
 from app.models.repo import Repo
 from app.models.user import User
 from app.models.event import Event
@@ -251,6 +252,7 @@ async def sync_vcs_repositories(
     return await _perform_sync(request, user, session)
 
 @router.get("/integrations/github/connect")
+@limiter.limit("10/minute")
 async def github_connect(
     request: Request,
     user: User = Depends(get_current_user),
@@ -280,6 +282,7 @@ async def github_connect(
 
 
 @router.get("/integrations/github/callback")
+@limiter.limit("10/minute")
 async def github_callback(
     request: Request,
     code: Optional[str] = None,
@@ -352,3 +355,85 @@ async def github_callback(
     logger.info(f"Successfully saved encrypted GitHub access token for user {user.id}")
 
     return RedirectResponse("/onboarding?success=github_connected")
+
+
+@router.get("/integrations/status")
+async def get_integration_status(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+):
+    """Return real connection status for all integration providers."""
+    from app.core.crypto import decrypt_secret
+
+    # GitHub: check whether the encrypted token exists AND can be decrypted
+    github_connected = False
+    if user.github_access_token:
+        try:
+            token = decrypt_secret(user.github_access_token)
+            github_connected = bool(token)
+        except Exception:
+            github_connected = False
+
+    # Count tracked repos
+    count_result = await session.execute(select(func.count(Repo.id)))
+    synced_repos_count = count_result.scalar() or 0
+
+    # Latest sync timestamp (max github_updated_at across repos)
+    latest_result = await session.execute(select(func.max(Repo.github_updated_at)))
+    latest_sync_at = latest_result.scalar()
+
+    return {
+        "github": {
+            "connected": github_connected,
+            "config": "OAuth Connected (read-only)" if github_connected else "Not configured",
+            "synced_repos_count": synced_repos_count,
+            "latest_sync_at": latest_sync_at.isoformat() if latest_sync_at else None,
+        },
+        "pagerduty": {
+            "connected": False,
+            "config": "Not configured",
+            "note": "Not Connected — coming soon",
+        },
+    }
+
+
+@router.get("/integrations/github/oauth-url")
+async def get_github_oauth_url(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Return the GitHub OAuth URL as JSON so the frontend can redirect with auth."""
+    if not settings.GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GitHub OAuth is not configured.")
+
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/v1/integrations/github/callback"
+    state = _make_oauth_state(user.id)
+
+    github_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={settings.GITHUB_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&scope=repo,user"
+        f"&state={state}"
+    )
+    return {"url": github_url}
+
+
+@router.post("/integrations/github/disconnect")
+async def disconnect_github(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Clear the stored GitHub access token. Keeps existing synced repo data in place."""
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.github_access_token = None
+    session.add(db_user)
+    await session.commit()  # type: ignore
+    invalidate_user_cache(user.id)
+    logger.info(f"GitHub disconnected for user {user.id} — existing repo data preserved")
+
+    return {"status": "disconnected"}
