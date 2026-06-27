@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Header, HTTPException, Depends, BackgroundTasks
+from fastapi.responses import JSONResponse
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import hmac
@@ -107,7 +108,7 @@ async def github_webhook_handler(
     full_name = repo_data.get("full_name")  # "owner/repo"
 
     if not full_name:
-        return {"status": "ignored", "reason": "No repository info found in payload"}
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": "No repository info found in payload"})
 
     # 2. Find the repository in NexOps database
     result = await session.execute(  # type: ignore
@@ -116,7 +117,7 @@ async def github_webhook_handler(
     repo = result.scalars().first()
 
     if not repo:
-        return {"status": "ignored", "reason": f"Repository {full_name} not tracked in NexOps"}
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Repository {full_name} not tracked in NexOps"})
 
     # 3. Map GitHub Event -> NexOps Event Type
     event_type = "unknown"
@@ -141,7 +142,7 @@ async def github_webhook_handler(
             event_type = "pr.merged"
             message = f"Pull Request #{payload.get('number')} merged"
         else:
-            return {"status": "ignored", "reason": f"PR action {action} not processed"}
+            return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"PR action {action} not processed"})
 
     elif x_github_event == "issues":
         action = payload.get("action")
@@ -151,10 +152,10 @@ async def github_webhook_handler(
             repo.open_issues += 1
             session.add(repo)
         else:
-            return {"status": "ignored", "reason": f"Issue action {action} not processed"}
+            return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Issue action {action} not processed"})
 
     if event_type == "unknown":
-        return {"status": "ignored", "reason": f"Event type {x_github_event} not mapped"}
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Event type {x_github_event} not mapped"})
 
     # 4. Create NexOps Event
     new_event = Event(
@@ -173,7 +174,7 @@ async def github_webhook_handler(
     from app.api.routes.events import _run_automation
     background_tasks.add_task(_run_automation, new_event.id)
 
-    return {"status": "processed", "event_id": new_event.id, "type": event_type}
+    return JSONResponse(status_code=200, content={"status": "processed", "event_id": new_event.id, "type": event_type})
 
 
 @router.post("/pagerduty")
@@ -216,7 +217,7 @@ async def pagerduty_webhook_handler(
         repo = result.scalars().first()
 
     if not repo:
-        return {"status": "ignored", "reason": "No repository tracked in NexOps database to link alert to"}
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": "No repository tracked in NexOps database to link alert to"})
 
     new_event = Event(
         type="pagerduty.incident" if "incident" in event_type else "ci.failed",
@@ -233,4 +234,4 @@ async def pagerduty_webhook_handler(
     from app.api.routes.events import _run_automation
     background_tasks.add_task(_run_automation, new_event.id)
 
-    return {"status": "processed", "event_id": new_event.id, "type": new_event.type}
+    return JSONResponse(status_code=200, content={"status": "processed", "event_id": new_event.id, "type": new_event.type})
