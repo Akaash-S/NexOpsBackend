@@ -39,6 +39,7 @@ async def init_db():
     async with engine.begin() as conn:
         from sqlalchemy import text
         await conn.execute(text("ALTER TABLE repos ADD COLUMN IF NOT EXISTS user_id VARCHAR;"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_last_synced_at TIMESTAMP;"))
         await conn.run_sync(SQLModel.metadata.create_all)
 
 

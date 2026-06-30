@@ -23,6 +23,7 @@ class User(SQLModel, table=True):
     role: str = Field(default="member")  # admin | lead | member
     
     github_access_token: Optional[str] = Field(default=None)
+    github_last_synced_at: Optional[datetime] = Field(default=None)  # Timestamp of last successful GitHub sync
     pagerduty_access_token: Optional[str] = Field(default=None)
     pagerduty_webhook_secret: Optional[str] = Field(default=None)
     pagerduty_webhook_subscription_id: Optional[str] = Field(default=None)

@@ -226,6 +226,13 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     logger.error(f"Failed to parse nexops.yaml for {repo.name}: {yaml_err}")
             await session.flush()  # type: ignore
         
+        # Stamp the successful sync time on the user record
+        db_user = await session.get(User, user.id)
+        if db_user:
+            db_user.github_last_synced_at = datetime.utcnow()
+            session.add(db_user)
+            invalidate_user_cache(user.id)
+
         await session.commit()  # type: ignore
         return {"status": "success", "synced": len(new_repos)}
         
@@ -378,13 +385,11 @@ async def get_integration_status(
         except Exception:
             github_connected = False
 
-    # Count tracked repos
-    count_result = await session.execute(select(func.count(Repo.id)))
+    # Count tracked repos (scoped to this user)
+    count_result = await session.execute(
+        select(func.count(Repo.id)).where(Repo.user_id == user.id)
+    )
     synced_repos_count = count_result.scalar() or 0
-
-    # Latest sync timestamp (max github_updated_at across repos)
-    latest_result = await session.execute(select(func.max(Repo.github_updated_at)))
-    latest_sync_at = latest_result.scalar()
 
     # PagerDuty: check whether the encrypted token exists AND can be decrypted
     pagerduty_connected = False
@@ -400,7 +405,7 @@ async def get_integration_status(
             "connected": github_connected,
             "config": "OAuth Connected (read-only)" if github_connected else "Not configured",
             "synced_repos_count": synced_repos_count,
-            "latest_sync_at": latest_sync_at.isoformat() if latest_sync_at else None,
+            "latest_sync_at": user.github_last_synced_at.isoformat() if user.github_last_synced_at else None,
         },
         "pagerduty": {
             "connected": pagerduty_connected,
