@@ -144,7 +144,7 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
     incident_query = select(Incident).where(
         Incident.root_cause_repo_id == repo_id,
         Incident.status == "open"
-    )
+    ).order_by(Incident.created_at.desc()).limit(1)
     incident_result = await session.execute(incident_query)
     active_incident = incident_result.scalar_one_or_none()
     

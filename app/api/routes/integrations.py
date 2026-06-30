@@ -501,7 +501,7 @@ async def connect_pagerduty(
         try:
             subscription = await pagerduty_service.create_webhook_subscription(token, webhook_url)
             subscription_id = subscription.get("id")
-            webhook_secret = subscription.get("secret")
+            webhook_secret = subscription.get("delivery_method", {}).get("secret")
         except Exception as e:
             error_msg = str(e)
             if "URL is not allowed" in error_msg:
