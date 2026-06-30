@@ -190,13 +190,13 @@ class VCService:
                 pushed = raw.get("pushed_at")
                 if pushed:
                     try:
-                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00")).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         pass
                 gh_updated = raw.get("updated_at")
                 if gh_updated:
                     try:
-                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
+                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00")).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         pass
 
