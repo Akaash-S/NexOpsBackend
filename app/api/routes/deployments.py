@@ -58,23 +58,6 @@ async def trigger_deployment(
         }
     )
     
-    # NEW: Create a Pipeline record so it's visible in the CICD Command Center
-    from app.models.pipeline import Pipeline
-    from app.core.logs import generate_realistic_logs
-    
-    pipeline = Pipeline(
-        repo_id=data.repo_id,
-        name=f"Manual Deploy: {data.version}",
-        status="running",
-        trigger="manual",
-        environment=data.environment,
-        commit_hash=data.commit_hash,
-        logs=generate_realistic_logs("Deployment", "HEAD", "success"),
-        metadata={"provider_id": data.provider_id} # Store provider info in pipeline metadata
-    )
-    session.add(pipeline)
-    await session.flush()
-
     # Trigger automation in background
     from app.api.routes.events import _run_automation
     event = await create_event(session, event_data)
