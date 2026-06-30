@@ -29,14 +29,17 @@ async def create_repo(session: AsyncSession, data: RepoCreate) -> Repo:
 
 async def get_repos(
     session: AsyncSession,
+    user_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     cluster_id: Optional[str] = None,
     platform: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> List[Repo]:
-    """Fetch repositories, optionally filtered by workspace, cluster, and/or platform."""
+    """Fetch repositories, optionally filtered by user, workspace, cluster, and/or platform."""
     query = select(Repo)
+    if user_id:
+        query = query.where(Repo.user_id == user_id)
     if workspace_id:
         query = query.where(Repo.workspace_id == workspace_id)
     if cluster_id:

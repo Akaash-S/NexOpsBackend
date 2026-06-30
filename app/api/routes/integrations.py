@@ -103,11 +103,15 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         # 2. Persist repos and generate 'Synthetic History' for NEW ones
         synced_repos = []
         for repo_data in new_repos:
-            # Check if repo already exists
+            # Associate repo with the syncing user
+            repo_data.user_id = user.id
+
+            # Check if repo already exists for this user
             existing_result = await session.execute(  # type: ignore
                 select(Repo).where(
                     Repo.name == repo_data.name,
-                    Repo.platform == repo_data.platform
+                    Repo.platform == repo_data.platform,
+                    Repo.user_id == user.id
                 )
             )
             repo = existing_result.scalar_one_or_none()

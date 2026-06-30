@@ -37,6 +37,8 @@ async_session = async_sessionmaker(
 async def init_db():
     """Create all tables on startup."""
     async with engine.begin() as conn:
+        from sqlalchemy import text
+        await conn.execute(text("ALTER TABLE repos ADD COLUMN IF NOT EXISTS user_id VARCHAR;"))
         await conn.run_sync(SQLModel.metadata.create_all)
 
 

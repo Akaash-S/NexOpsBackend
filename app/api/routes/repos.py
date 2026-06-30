@@ -13,7 +13,8 @@ from app.models.user import User
 from app.schemas.repo_schema import RepoCreate, RepoUpdate, RepoResponse
 from app.services import repo_service
 from app.services.vcs_service import vcs_service
-from app.core.crypto import decrypt_secret
+from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.security import get_current_user
 
 router = APIRouter(prefix="/repos", tags=["Repositories"])
 
@@ -26,10 +27,12 @@ async def list_repos(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """List repositories, optionally filtered by workspace or cluster."""
+    """List repositories, optionally filtered by workspace or cluster, scoped to the current user."""
     return await repo_service.get_repos(
         session,
+        user_id=user.id,
         workspace_id=workspace_id,
         cluster_id=cluster_id,
         platform=platform,
@@ -43,10 +46,12 @@ async def search_repos(
     q: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=50),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Search repositories by name, description, or language."""
+    """Search repositories by name, description, or language, scoped to the current user."""
     search_term = f"%{q}%"
     query = select(Repo).where(
+        Repo.user_id == user.id,
         or_(
             Repo.name.ilike(search_term),
             Repo.description.ilike(search_term),
@@ -63,10 +68,11 @@ async def search_repos(
 async def get_repo(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Get a single repository by ID."""
+    """Get a single repository by ID, verifying user ownership."""
     repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not repo:
+    if not repo or repo.user_id != user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
 
@@ -75,9 +81,21 @@ async def get_repo(
 async def create_repo(
     data: RepoCreate,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Register a new repository to track."""
-    return await repo_service.create_repo(session, data)
+    """Register a new repository to track, owned by the current user."""
+    repo = Repo(
+        name=data.name,
+        platform=data.platform,
+        description=data.description,
+        language=data.language,
+        default_branch=data.default_branch,
+        user_id=user.id,
+    )
+    session.add(repo)
+    await session.commit()
+    await session.refresh(repo)
+    return repo
 
 
 @router.patch("/{repo_id}", response_model=RepoResponse)
@@ -85,29 +103,26 @@ async def update_repo(
     repo_id: str,
     data: RepoUpdate,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Update repository details."""
-    # Get the old cluster_id before update
+    """Update repository details, verifying user ownership."""
     old_repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not old_repo:
+    if not old_repo or old_repo.user_id != user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # Update the repo
     repo = await repo_service.update_repo(session, repo_id, data)
-    if not repo:
-        raise HTTPException(status_code=404, detail="Repository not found")
-    
     return repo
 
 
 @router.get("/{repo_id}/blast-radius")
 async def get_repo_blast_radius(
     repo_id: str,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Calculate repository blast radius and risk score."""
+    """Calculate repository blast radius and risk score, verifying user ownership."""
     repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not repo:
+    if not repo or repo.user_id != user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     from app.services.impact_service import calculate_blast_radius
     return await calculate_blast_radius(session, repo_id)
@@ -118,8 +133,9 @@ async def get_repo_tree(
     repo_id: str,
     path: str = Query("", description="Folder path within the repository"),
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Fetch live directory structure from the VCS provider, cached in Redis."""
+    """Fetch live directory structure from the VCS provider, verifying user ownership."""
     # Check cache first
     from app.core.redis import get_cached_data, set_cached_data
     cache_key = f"cache:repo:tree:{repo_id}:{path}"
@@ -127,17 +143,13 @@ async def get_repo_tree(
     if cached_tree is not None:
         return cached_tree
 
-    # 1. Get Repo metadata
+    # 1. Get Repo metadata and verify ownership
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
-    if not repo:
+    if not repo or repo.user_id != user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 2. Get User for token
-    user_result = await session.execute(select(User).where(User.github_access_token != None))
-    user = user_result.scalars().first()
-    
-    if not user or not user.github_access_token:
+    if not user.github_access_token:
         raise HTTPException(
             status_code=401, 
             detail="VCS integration not authenticated. Please sync your account on the Integrations page to enable live code viewing."
@@ -166,8 +178,9 @@ async def get_file_content(
     repo_id: str,
     path: str,
     session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ):
-    """Fetch live file content from the VCS provider, cached in Redis."""
+    """Fetch live file content from the VCS provider, verifying user ownership."""
     # Check cache first
     from app.core.redis import get_cached_data, set_cached_data
     cache_key = f"cache:repo:file:{repo_id}:{path}"
@@ -175,17 +188,13 @@ async def get_file_content(
     if cached_file is not None:
         return cached_file
 
-    # 1. Get Repo metadata
+    # 1. Get Repo metadata and verify ownership
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
-    if not repo:
+    if not repo or repo.user_id != user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
-    # 2. Get User for token
-    user_result = await session.execute(select(User).where(User.github_access_token != None))
-    user = user_result.scalars().first()
-    
-    if not user or not user.github_access_token:
+    if not user.github_access_token:
         raise HTTPException(
             status_code=401, 
             detail="VCS integration not authenticated. Please sync your account on the Integrations page to enable live code viewing."
