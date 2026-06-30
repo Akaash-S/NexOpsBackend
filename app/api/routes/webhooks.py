@@ -46,14 +46,37 @@ async def verify_github_signature(request: Request, x_hub_signature_256: Optiona
         raise HTTPException(status_code=401, detail="Invalid signature.")
 
 
-async def verify_pagerduty_signature(request: Request):
+async def verify_pagerduty_signature(
+    request: Request,
+    session: AsyncSession = Depends(get_session)
+):
     """
     Validate the PagerDuty webhook HMAC-SHA256 signature.
-    If PAGERDUTY_WEBHOOK_SECRET is not configured the endpoint rejects all requests — a
-    missing secret is treated as a misconfiguration, not a reason to skip verification.
+    Supports multi-tenancy: looks up user's secret from the db using the 'uid' query parameter.
+    Falls back to settings.PAGERDUTY_WEBHOOK_SECRET if 'uid' is not present or user has no secret.
     """
-    if not settings.PAGERDUTY_WEBHOOK_SECRET:
-        logger.error("PAGERDUTY_WEBHOOK_SECRET is not configured — rejecting webhook request.")
+    uid = request.query_params.get("uid")
+    webhook_secret = None
+
+    if uid:
+        from app.models.user import User
+        from app.core.crypto import decrypt_secret
+        try:
+            result = await session.execute(select(User).where(User.id == uid))
+            user = result.scalars().first()
+            if user and user.pagerduty_webhook_secret:
+                webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
+                logger.info(f"Using per-user PagerDuty webhook secret for user {uid}")
+        except Exception as db_err:
+            logger.error(f"Error looking up PagerDuty secret for user {uid}: {db_err}")
+
+    if not webhook_secret:
+        webhook_secret = settings.PAGERDUTY_WEBHOOK_SECRET
+        if webhook_secret:
+            logger.info("Using global settings.PAGERDUTY_WEBHOOK_SECRET fallback")
+
+    if not webhook_secret:
+        logger.error("No PagerDuty webhook secret found (per-user or global) — rejecting webhook request.")
         raise HTTPException(
             status_code=503,
             detail="Webhook endpoint not configured: server secret is missing."
@@ -77,7 +100,7 @@ async def verify_pagerduty_signature(request: Request):
         raise HTTPException(status_code=401, detail="No v1 signature found in X-PagerDuty-Signature.")
 
     expected = hmac.new(
-        settings.PAGERDUTY_WEBHOOK_SECRET.encode(),
+        webhook_secret.encode(),
         body,
         hashlib.sha256
     ).hexdigest()

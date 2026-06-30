@@ -23,6 +23,9 @@ class User(SQLModel, table=True):
     role: str = Field(default="member")  # admin | lead | member
     
     github_access_token: Optional[str] = Field(default=None)
+    pagerduty_access_token: Optional[str] = Field(default=None)
+    pagerduty_webhook_secret: Optional[str] = Field(default=None)
+    pagerduty_webhook_subscription_id: Optional[str] = Field(default=None)
     onboarding_completed: bool = Field(default=False)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)

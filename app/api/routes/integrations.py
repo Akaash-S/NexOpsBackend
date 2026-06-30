@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, Body, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -382,6 +382,15 @@ async def get_integration_status(
     latest_result = await session.execute(select(func.max(Repo.github_updated_at)))
     latest_sync_at = latest_result.scalar()
 
+    # PagerDuty: check whether the encrypted token exists AND can be decrypted
+    pagerduty_connected = False
+    if user.pagerduty_access_token:
+        try:
+            pd_token = decrypt_secret(user.pagerduty_access_token)
+            pagerduty_connected = bool(pd_token)
+        except Exception:
+            pagerduty_connected = False
+
     return {
         "github": {
             "connected": github_connected,
@@ -390,9 +399,8 @@ async def get_integration_status(
             "latest_sync_at": latest_sync_at.isoformat() if latest_sync_at else None,
         },
         "pagerduty": {
-            "connected": False,
-            "config": "Not configured",
-            "note": "Not Connected — coming soon",
+            "connected": pagerduty_connected,
+            "config": "API Token Connected" if pagerduty_connected else "Not configured",
         },
     }
 
@@ -435,5 +443,133 @@ async def disconnect_github(
     await session.commit()  # type: ignore
     invalidate_user_cache(user.id)
     logger.info(f"GitHub disconnected for user {user.id} — existing repo data preserved")
+
+    return {"status": "disconnected"}
+
+
+class PagerDutyConnectRequest(BaseModel):
+    token: str
+
+
+@router.post("/integrations/pagerduty/connect")
+@limiter.limit("10/minute")
+async def connect_pagerduty(
+    request: Request,
+    response: Response,
+    payload: PagerDutyConnectRequest = Body(...),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Validate API token, register a webhook subscription on PagerDuty, and store credentials."""
+    token = payload.token.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="PagerDuty API token cannot be empty.")
+
+    from app.services.pagerduty_service import pagerduty_service
+    from app.core.crypto import encrypt_secret
+
+    # 1. Validate the token against PagerDuty API
+    is_valid = await pagerduty_service.validate_token(token)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid PagerDuty API token. Validation call failed.")
+
+    # 2. Register a webhook subscription on PagerDuty pointing to our webhook endpoint
+    base_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{base_url}/api/v1/webhooks/pagerduty?uid={user.id}"
+
+    subscription_id = None
+    webhook_secret = None
+
+    # Check if the URL is local (localhost, 127.0.0.1, or private IP address) or not HTTPS
+    from urllib.parse import urlparse
+    parsed_url = urlparse(webhook_url)
+    hostname = parsed_url.hostname or ""
+    is_local = (
+        hostname == "localhost"
+        or hostname == "127.0.0.1"
+        or hostname.startswith("192.168.")
+        or hostname.startswith("172.")
+        or hostname.startswith("10.")
+        or not webhook_url.startswith("https://")
+    )
+
+    if is_local:
+        logger.warning(f"Local development environment detected ({webhook_url}). Skipping PagerDuty webhook registration and using local dummy credentials.")
+        subscription_id = "local-dev-dummy-id"
+        webhook_secret = settings.PAGERDUTY_WEBHOOK_SECRET or "local-dev-dummy-secret"
+    else:
+        try:
+            subscription = await pagerduty_service.create_webhook_subscription(token, webhook_url)
+            subscription_id = subscription.get("id")
+            webhook_secret = subscription.get("secret")
+        except Exception as e:
+            error_msg = str(e)
+            if "URL is not allowed" in error_msg:
+                logger.warning(f"PagerDuty rejected local URL ({webhook_url}) during webhook registration. Falling back to local integration mode.")
+                subscription_id = "local-dev-dummy-id"
+                webhook_secret = settings.PAGERDUTY_WEBHOOK_SECRET or "local-dev-dummy-secret"
+            else:
+                logger.error(f"Failed to create PagerDuty webhook subscription: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Successfully validated token, but failed to register webhook subscription with PagerDuty: {str(e)}"
+                )
+
+    if not subscription_id or not webhook_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="PagerDuty webhook subscription response missing 'id' or 'secret'."
+        )
+
+    # 3. Store encrypted credentials in the database
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.pagerduty_access_token = encrypt_secret(token)
+    db_user.pagerduty_webhook_secret = encrypt_secret(webhook_secret)
+    db_user.pagerduty_webhook_subscription_id = subscription_id
+
+    session.add(db_user)
+    await session.commit()  # type: ignore
+    invalidate_user_cache(user.id)
+    logger.info(f"PagerDuty connected successfully for user {user.id}")
+
+    return {
+        "status": "connected",
+        "webhook_subscription_id": subscription_id
+    }
+
+
+@router.delete("/integrations/pagerduty/disconnect")
+async def disconnect_pagerduty(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove the stored PagerDuty credential and attempt to clean up registered webhook subscription."""
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Decrypt token and attempt best-effort deletion of subscription
+    if db_user.pagerduty_access_token and db_user.pagerduty_webhook_subscription_id:
+        from app.core.crypto import decrypt_secret
+        from app.services.pagerduty_service import pagerduty_service
+        try:
+            token = decrypt_secret(db_user.pagerduty_access_token)
+            subscription_id = db_user.pagerduty_webhook_subscription_id
+            await pagerduty_service.delete_webhook_subscription(token, subscription_id)
+        except Exception as delete_err:
+            logger.error(f"Best-effort PagerDuty webhook cleanup failed: {delete_err}")
+
+    # Clear columns in user model
+    db_user.pagerduty_access_token = None
+    db_user.pagerduty_webhook_secret = None
+    db_user.pagerduty_webhook_subscription_id = None
+
+    session.add(db_user)
+    await session.commit()  # type: ignore
+    invalidate_user_cache(user.id)
+    logger.info(f"PagerDuty disconnected for user {user.id}")
 
     return {"status": "disconnected"}

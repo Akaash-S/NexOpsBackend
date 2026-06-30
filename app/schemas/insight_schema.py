@@ -17,7 +17,7 @@ class PipelineStats(BaseSchema):
     success: int
     failed: int
     running: int
-    avg_duration: float
+    avg_duration: Optional[float] = None
 
 
 class Recommendation(BaseSchema):
