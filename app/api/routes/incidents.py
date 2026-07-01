@@ -8,6 +8,7 @@ from datetime import datetime
 from app.core.database import get_session
 from app.core.security import get_current_user
 from app.models.incident import Incident
+from app.models.repo import Repo
 from app.models.candidate_cause import CandidateCause
 from app.schemas.incident_schema import IncidentResponse, IncidentCreate
 
@@ -20,6 +21,7 @@ class FeedbackRequest(BaseModel):
     class Config:
         validate_by_name = True
 
+
 @router.get("", response_model=List[IncidentResponse])
 async def list_incidents(
     status: Optional[str] = Query(None),
@@ -27,7 +29,7 @@ async def list_incidents(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    query = select(Incident)
+    query = select(Incident).join(Repo, Incident.root_cause_repo_id == Repo.id).where(Repo.user_id == user.id)
     if status:
         query = query.where(Incident.status == status)
     if cluster_id:
@@ -61,13 +63,20 @@ async def list_incidents(
 
     return response_incidents
 
+
 @router.get("/{incident_id}", response_model=IncidentResponse)
 async def get_incident(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    incident = await session.get(Incident, incident_id)
+    # Verify ownership
+    incident_result = await session.execute(
+        select(Incident)
+        .join(Repo, Incident.root_cause_repo_id == Repo.id)
+        .where(Incident.id == incident_id, Repo.user_id == user.id)
+    )
+    incident = incident_result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -78,12 +87,23 @@ async def get_incident(
     resp_data["candidate_causes"] = list(cc_result.scalars().all())
     return resp_data
 
+
 @router.patch("/{incident_id}/resolve", response_model=IncidentResponse)
 async def resolve_incident(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
+    # Verify ownership
+    incident_result = await session.execute(
+        select(Incident)
+        .join(Repo, Incident.root_cause_repo_id == Repo.id)
+        .where(Incident.id == incident_id, Repo.user_id == user.id)
+    )
+    incident = incident_result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
     from app.services.incident_service import resolve_incident as resolve_logic
     incident = await resolve_logic(session, incident_id)
     if not incident:
@@ -96,6 +116,7 @@ async def resolve_incident(
     resp_data["candidate_causes"] = list(cc_result.scalars().all())
     return resp_data
 
+
 @router.post("/{incident_id}/feedback", response_model=IncidentResponse)
 @router.patch("/{incident_id}/feedback", response_model=IncidentResponse)
 async def submit_feedback(
@@ -104,8 +125,13 @@ async def submit_feedback(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    # 1. Fetch incident
-    incident = await session.get(Incident, incident_id)
+    # 1. Fetch incident and verify ownership
+    incident_result = await session.execute(
+        select(Incident)
+        .join(Repo, Incident.root_cause_repo_id == Repo.id)
+        .where(Incident.id == incident_id, Repo.user_id == user.id)
+    )
+    incident = incident_result.scalar_one_or_none()
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
         

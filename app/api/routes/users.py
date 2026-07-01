@@ -11,18 +11,19 @@ from datetime import datetime
 from app.core.database import get_session
 from app.models.user import User
 from app.schemas.user_team_schema import UserResponse
+from app.core.security import get_current_user, invalidate_user_cache
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
 @router.get("", response_model=List[UserResponse])
-async def list_users(session: AsyncSession = Depends(get_session)):
-    """List all users."""
-    result = await session.execute(select(User))
+async def list_users(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """List all users (scoped to current user)."""
+    result = await session.execute(select(User).where(User.id == current_user.id))
     return list(result.scalars().all())
-
-
-from app.core.security import get_current_user, invalidate_user_cache
 
 
 @router.get("/me", response_model=UserResponse)

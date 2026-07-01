@@ -7,6 +7,7 @@ from datetime import datetime
 from app.core.database import get_session
 from app.core.security import get_current_user
 from app.models.cloud_provider import CloudProvider
+from app.models.repo import Repo
 from app.schemas.cloud_provider_schema import CloudProviderResponse, CloudProviderCreate
 from app.core.cloud_validators import validate_cloud_provider
 from app.core.crypto import encrypt_secret
@@ -20,6 +21,13 @@ async def list_cloud_providers(
     user = Depends(get_current_user)
 ):
     """List all connected cloud hosting providers for a workspace."""
+    # Verify user owns/has access to this workspace
+    repo_check = await session.execute(
+        select(Repo).where(Repo.workspace_id == workspace_id, Repo.user_id == user.id)
+    )
+    if not repo_check.scalars().first():
+        raise HTTPException(status_code=403, detail="Access to workspace denied")
+
     query = select(CloudProvider).where(CloudProvider.workspace_id == workspace_id)
     result = await session.execute(query)
     return list(result.scalars().all())
@@ -31,6 +39,13 @@ async def connect_cloud_provider(
     user = Depends(get_current_user)
 ):
     """Connect a new cloud provider (Vercel, AWS, etc.) to the workspace."""
+    # Verify user owns/has access to this workspace
+    repo_check = await session.execute(
+        select(Repo).where(Repo.workspace_id == data.workspace_id, Repo.user_id == user.id)
+    )
+    if not repo_check.scalars().first():
+        raise HTTPException(status_code=403, detail="Access to workspace denied")
+
     # 1. Validate the token against the real provider API (use raw token here)
     is_valid = await validate_cloud_provider(data.type, data.access_token, data.secret_key)
     if not is_valid:
@@ -66,6 +81,13 @@ async def disconnect_cloud_provider(
     provider = await session.get(CloudProvider, provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
+    
+    # Verify user owns/has access to this workspace
+    repo_check = await session.execute(
+        select(Repo).where(Repo.workspace_id == provider.workspace_id, Repo.user_id == user.id)
+    )
+    if not repo_check.scalars().first():
+        raise HTTPException(status_code=403, detail="Access denied")
     
     await session.delete(provider)
     await session.commit()
