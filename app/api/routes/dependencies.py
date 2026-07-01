@@ -9,6 +9,8 @@ from sqlmodel import select
 from typing import List
 
 from app.core.database import get_session
+from app.core.security import get_current_user
+from app.models.user import User
 from app.models.dependency import Dependency
 from app.models.repo import Repo
 from app.schemas.dependency_schema import (
@@ -27,12 +29,13 @@ async def get_topology(
     workspace_id: str | None = None,
     cluster_id: str | None = None,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Return the full topology graph: all repo nodes + all dependency edges.
-    Optionally scoped to a workspace or a specific cluster.
+    Return the topology graph for the authenticated user's repos.
+    Only repos belonging to the current user are included.
     """
-    repo_query = select(Repo)
+    repo_query = select(Repo).where(Repo.user_id == current_user.id)
     if cluster_id:
         repo_query = repo_query.where(Repo.cluster_id == cluster_id)
     elif workspace_id:
