@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
 from sqlmodel import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.incident import Incident
@@ -135,35 +136,34 @@ async def get_or_create_incident(
     impacted_repos: List[str] = []
 ) -> Incident:
     """
-    Find an existing open incident in the same cluster/context within the last 30 mins, 
-    or create a new one.
+    Find an existing open incident for the same repository within the last 30 mins, 
+    or create a new one, protected by an advisory lock.
     """
-    repo = await session.get(Repo, repo_id)
-    cluster_id = repo.cluster_id if repo else None
+    # Use repo_id hash as advisory lock key to prevent concurrent creation
+    lock_key = abs(hash(repo_id)) % (2**31 - 1)
+    await session.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+
+    # Check for existing open incident for this repository
+    thirty_mins_ago = datetime.utcnow() - timedelta(minutes=30)
+    query = select(Incident).where(
+        Incident.root_cause_repo_id == repo_id,
+        Incident.status == "open",
+        Incident.created_at >= thirty_mins_ago
+    )
+    result = await session.execute(query)
+    existing_incident = result.scalar_one_or_none()
     
-    if cluster_id:
-        # Check for existing open incident in the same cluster context
-        thirty_mins_ago = datetime.utcnow() - timedelta(minutes=30)
-        query = select(Incident).where(
-            Incident.cluster_id == cluster_id,
-            Incident.status == "open",
-            Incident.created_at >= thirty_mins_ago
-        )
-        result = await session.execute(query)
-        existing_incident = result.scalar_one_or_none()
-        
-        if existing_incident:
-            logger.info(f"Grouping alert into existing incident: {existing_incident.id}")
-            # Add new impacted repos to existing list
-            current_impacted = set(existing_incident.impacted_repos or [])
-            current_impacted.update(impacted_repos)
-            existing_incident.impacted_repos = list(current_impacted)
-            session.add(existing_incident)
-            return existing_incident
+    if existing_incident:
+        logger.info(f"Grouping alert into existing incident: {existing_incident.id}")
+        current_impacted = set(existing_incident.impacted_repos or [])
+        current_impacted.update(impacted_repos)
+        existing_incident.impacted_repos = list(current_impacted)
+        session.add(existing_incident)
+        await session.flush()
+        return existing_incident
 
     # Create new incident
     new_incident = Incident(
-        cluster_id=cluster_id,
         title=title,
         severity=severity,
         status="open",
@@ -178,7 +178,7 @@ async def get_or_create_incident(
     # Perform cause correlation scoring
     await correlate_incident_causes(session, new_incident)
     
-    logger.info(f"Created new incident: {new_incident.id} (Cluster Context: {cluster_id})")
+    logger.info(f"Created new incident: {new_incident.id}")
     return new_incident
 
 async def resolve_incident(session: AsyncSession, incident_id: str):

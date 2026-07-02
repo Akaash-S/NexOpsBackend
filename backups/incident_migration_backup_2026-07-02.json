@@ -1,0 +1,89 @@
+{
+  "backup_timestamp": "2026-07-02",
+  "purpose": "Pre-migration backup of 3 duplicate incidents",
+  "incidents": [
+    {
+      "id": "ed7cdc78-915c-42e1-9c04-85c17bd0dd65",
+      "cluster_id": null,
+      "title": "Systemic Failure: PagerDuty incident: payments-api latency spike \u2014 p99 above threshold on service ",
+      "description": null,
+      "severity": "error",
+      "status": "open",
+      "root_cause_repo_id": "d91e90be-63e1-4950-89bd-a9e57df81711",
+      "impacted_repos": [],
+      "impact_summary": null,
+      "started_at": "2026-07-01T03:36:08.684337",
+      "resolved_at": null,
+      "created_at": "2026-07-01T03:36:08.684562",
+      "updated_at": "2026-07-01T03:36:08.684580"
+    },
+    {
+      "id": "1eb0c11e-2860-4fdc-b5c9-854f22ac64ae",
+      "cluster_id": null,
+      "title": "Systemic Failure: PagerDuty incident: payments-api latency spike \u2014 p99 above threshold on service ",
+      "description": null,
+      "severity": "error",
+      "status": "open",
+      "root_cause_repo_id": "c315590c-c26b-4892-92e3-e83567f879f3",
+      "impacted_repos": [],
+      "impact_summary": null,
+      "started_at": "2026-07-01T03:36:24.356725",
+      "resolved_at": null,
+      "created_at": "2026-07-01T03:36:24.356945",
+      "updated_at": "2026-07-01T03:36:24.356958"
+    },
+    {
+      "id": "c48f9a81-afd0-41df-9710-c42b7593fc66",
+      "cluster_id": null,
+      "title": "Systemic Failure: PagerDuty incident: payments-api latency spike \u2014 p99 above threshold on service ",
+      "description": null,
+      "severity": "error",
+      "status": "open",
+      "root_cause_repo_id": "c0aebc8f-d928-40fb-833c-35d3c98c6f2c",
+      "impacted_repos": [],
+      "impact_summary": null,
+      "started_at": "2026-07-01T03:39:05.556951",
+      "resolved_at": null,
+      "created_at": "2026-07-01T03:39:05.557229",
+      "updated_at": "2026-07-01T03:39:05.557246"
+    }
+  ],
+  "candidate_causes": [
+    {
+      "id": "733bbf87-8ac1-4052-bd1b-dbf68c024627",
+      "incident_id": "1eb0c11e-2860-4fdc-b5c9-854f22ac64ae",
+      "repo_id": "c315590c-c26b-4892-92e3-e83567f879f3",
+      "event_id": "1e53f82e-4c35-4d94-bcb5-f960ffff832f",
+      "score": 60.0,
+      "reason": "Same repository (+35), Temporal proximity within 15 min (+25). Total Score: 60.0",
+      "confirmed": null,
+      "confirmed_by": "lqEUnHMRWKcv6anhNOH9Bd6fhUU2",
+      "created_at": "2026-07-01T03:36:26.600643",
+      "updated_at": "2026-07-01T03:36:26.600657"
+    },
+    {
+      "id": "160d4920-4175-4b8f-8496-c1f394152303",
+      "incident_id": "c48f9a81-afd0-41df-9710-c42b7593fc66",
+      "repo_id": "c0aebc8f-d928-40fb-833c-35d3c98c6f2c",
+      "event_id": "c5e10eaf-4d61-4a1f-97cc-2fbb1fda0498",
+      "score": 60.0,
+      "reason": "Same repository (+35), Temporal proximity within 15 min (+25). Total Score: 60.0",
+      "confirmed": true,
+      "confirmed_by": "lqEUnHMRWKcv6anhNOH9Bd6fhUU2",
+      "created_at": "2026-07-01T03:39:06.731826",
+      "updated_at": "2026-07-01T17:51:49.740271"
+    },
+    {
+      "id": "ca892a21-1379-4a9b-bc44-b62f14a2c488",
+      "incident_id": "ed7cdc78-915c-42e1-9c04-85c17bd0dd65",
+      "repo_id": "d91e90be-63e1-4950-89bd-a9e57df81711",
+      "event_id": "a690b69e-4d9e-4a5c-9c87-865345753ed1",
+      "score": 60.0,
+      "reason": "Same repository (+35), Temporal proximity within 15 min (+25). Total Score: 60.0",
+      "confirmed": true,
+      "confirmed_by": "lqEUnHMRWKcv6anhNOH9Bd6fhUU2",
+      "created_at": "2026-07-01T03:36:11.071340",
+      "updated_at": "2026-07-01T03:40:21.264076"
+    }
+  ]
+}

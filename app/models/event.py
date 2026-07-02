@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, JSON, String
+from sqlalchemy import Column, JSON, String, Index
 
 
 class Event(SQLModel, table=True):
@@ -31,5 +31,9 @@ class Event(SQLModel, table=True):
     message: Optional[str] = Field(default=None, max_length=500)
     severity: str = Field(default="info", max_length=20)  # info | warning | error | critical
     
+    # PagerDuty idempotency: stores the PagerDuty event.id to prevent duplicate processing.
+    # A partial unique index (on rows where pd_event_id IS NOT NULL) is created via migration.
+    pd_event_id: Optional[str] = Field(default=None, max_length=64, nullable=True)
+
     processed: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

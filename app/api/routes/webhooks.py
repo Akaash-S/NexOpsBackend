@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.models.event import Event
 from app.models.repo import Repo
+from app.models.incident import Incident
 from app.services.automation_service import process_event
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
@@ -210,24 +211,126 @@ async def pagerduty_webhook_handler(
 ):
     """
     Ingest PagerDuty incident webhook events.
-    Signature verification is mandatory — requires PAGERDUTY_WEBHOOK_SECRET to be set.
+
+    Fix — Defect B (repo fallback):
+      - Reads service.summary (correct field path; PagerDuty does NOT send service.name).
+      - Removes the unscoped SELECT * FROM repos fallback that silently attached events
+        to arbitrary repos. If no repo can be matched, rejects with a clear log entry.
+
+    Fix — Defect A (idempotency):
+      - Extracts the PagerDuty event.id and stores it as pd_event_id on the Event row.
+      - If an Event with the same pd_event_id already exists, returns a duplicate
+        response and skips processing — no new Event/Incident is created.
+
+    Fix — Open Question 4 (event type routing):
+      - incident.triggered  → creates a new NexOps Event + runs automation (as before).
+      - incident.acknowledged / incident.resolved → finds the existing open NexOps
+        incident for the PagerDuty incident ID and updates its status. Does NOT create
+        a new Event or Incident row.
+      - Other event types → ignored with a clear log entry.
     """
     payload = await request.json()
-    logger.info("Received PagerDuty Webhook payload")
 
+    # --- Extract event envelope ---
     event_data = payload.get("event", {})
     if not event_data:
         messages = payload.get("messages", [])
         if messages:
             event_data = messages[0]
 
-    event_type = event_data.get("event_type") or event_data.get("event", "incident.triggered")
+    pd_event_id = event_data.get("id")           # PagerDuty's own unique event ID
+    event_type = event_data.get("event_type") or event_data.get("event", "")
     incident_data = event_data.get("data", event_data.get("incident", {}))
+    pd_incident_id = incident_data.get("id")      # PagerDuty incident ID (e.g. Q3OILL557B8681)
     title = incident_data.get("title", "PagerDuty Alert")
-    service_info = incident_data.get("service", {})
-    pd_service_name = service_info.get("name", "")
 
-    # Find the repository in NexOps database
+    # Fix B — use service.summary (correct field); PagerDuty sends summary, not name
+    service_info = incident_data.get("service", {})
+    pd_service_name = service_info.get("summary") or service_info.get("name", "")
+
+    logger.info(f"PagerDuty webhook: event_type={event_type} pd_event_id={pd_event_id} "
+                f"pd_incident_id={pd_incident_id} service={pd_service_name!r}")
+
+    # Fix A — idempotency: reject duplicate deliveries with the same PagerDuty event ID
+    if pd_event_id:
+        existing_event_result = await session.execute(  # type: ignore
+            select(Event).where(Event.pd_event_id == pd_event_id)
+        )
+        existing_event = existing_event_result.scalars().first()
+        if existing_event:
+            logger.warning(f"Duplicate PagerDuty event {pd_event_id} — already processed as "
+                           f"NexOps event {existing_event.id}. Skipping.")
+            return JSONResponse(status_code=200, content={
+                "status": "duplicate",
+                "pd_event_id": pd_event_id,
+                "existing_event_id": existing_event.id
+            })
+
+    # Fix OQ4 — route acknowledged/resolved to status updates, NOT new incidents
+    if event_type in ("incident.acknowledged", "incident.resolved"):
+        if not pd_incident_id:
+            logger.warning(f"PagerDuty {event_type} received but no incident ID in payload — ignoring.")
+            return JSONResponse(status_code=200, content={"status": "ignored", "reason": "no pd_incident_id"})
+
+        # Search recent PagerDuty events for the matching PagerDuty incident ID
+        evt_result = await session.execute(  # type: ignore
+            select(Event).where(Event.source == "pagerduty").order_by(Event.created_at.desc()).limit(100)
+        )
+        pd_events = evt_result.scalars().all()
+        
+        matched_repo_id = None
+        for e in pd_events:
+            if e.payload:
+                event_block = e.payload.get("event", {})
+                # Try nested structures: event.data, event.incident, or fallback
+                data_block = event_block.get("data") or event_block.get("incident")
+                if not data_block and not isinstance(event_block, dict):
+                    # Fallback for alternative structures
+                    pass
+                if isinstance(data_block, dict):
+                    if data_block.get("id") == pd_incident_id:
+                        matched_repo_id = e.repo_id
+                        break
+
+        # Find the open or investigating incident for the matched repository
+        matched_incident = None
+        if matched_repo_id:
+            inc_result = await session.execute(  # type: ignore
+                select(Incident).where(
+                    Incident.root_cause_repo_id == matched_repo_id,
+                    Incident.status.in_(["open", "investigating"])
+                ).order_by(Incident.created_at.desc()).limit(1)
+            )
+            matched_incident = inc_result.scalars().first()
+
+        if matched_incident:
+            new_status = "investigating" if event_type == "incident.acknowledged" else "resolved"
+            matched_incident.status = new_status
+            if new_status == "resolved":
+                matched_incident.resolved_at = datetime.utcnow()
+            session.add(matched_incident)
+            await session.commit()  # type: ignore
+            logger.info(f"Updated incident {matched_incident.id} status to {new_status} "
+                        f"via PagerDuty {event_type}")
+            return JSONResponse(status_code=200, content={
+                "status": "updated",
+                "incident_id": matched_incident.id,
+                "new_status": new_status
+            })
+        else:
+            logger.warning(f"PagerDuty {event_type} for PD incident {pd_incident_id} — "
+                           f"no matching open/investigating NexOps incident found. Event arrived out of order.")
+            return JSONResponse(status_code=200, content={
+                "status": "unmatched",
+                "reason": f"No open/investigating NexOps incident found for PagerDuty incident {pd_incident_id}"
+            })
+
+    # Only incident.triggered (and other unrecognised types) fall through to create an Event
+    if event_type and event_type not in ("incident.triggered",) and event_type.startswith("incident."):
+        logger.info(f"PagerDuty event type {event_type!r} is not incident.triggered — ignoring.")
+        return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"event_type {event_type!r} not processed"})
+
+    # Fix B — repo matching: use service.summary; no unscoped fallback
     repo = None
     if pd_service_name:
         result = await session.execute(  # type: ignore
@@ -236,19 +339,26 @@ async def pagerduty_webhook_handler(
         repo = result.scalars().first()
 
     if not repo:
-        result = await session.execute(select(Repo))  # type: ignore
-        repo = result.scalars().first()
+        # Do NOT fall back to arbitrary first repo. Reject loudly.
+        logger.warning(
+            f"PagerDuty webhook: service {pd_service_name!r} does not match any tracked repo. "
+            f"pd_event_id={pd_event_id}. Webhook ignored — manual triage required."
+        )
+        return JSONResponse(status_code=200, content={
+            "status": "unmatched",
+            "reason": f"PagerDuty service {pd_service_name!r} not matched to any tracked NexOps repository. "
+                      "Add the repository or update the service name in PagerDuty."
+        })
 
-    if not repo:
-        return JSONResponse(status_code=200, content={"status": "ignored", "reason": "No repository tracked in NexOps database to link alert to"})
-
+    # Create NexOps Event for incident.triggered
     new_event = Event(
-        type="pagerduty.incident" if "incident" in event_type else "ci.failed",
+        type="pagerduty.incident",
         repo_id=repo.id,
         source="pagerduty",
         payload=payload,
-        message=f"PagerDuty incident: {title} on service {pd_service_name}",
-        severity="error" if "resolve" not in event_type else "info"
+        pd_event_id=pd_event_id,
+        message=f"PagerDuty incident: {title} (service: {pd_service_name})",
+        severity="error"
     )
     session.add(new_event)
     await session.commit()  # type: ignore
@@ -257,4 +367,11 @@ async def pagerduty_webhook_handler(
     from app.api.routes.events import _run_automation
     background_tasks.add_task(_run_automation, new_event.id)
 
-    return JSONResponse(status_code=200, content={"status": "processed", "event_id": new_event.id, "type": new_event.type})
+    logger.info(f"PagerDuty incident.triggered processed: NexOps event {new_event.id} "
+                f"repo={repo.name} pd_event_id={pd_event_id}")
+    return JSONResponse(status_code=200, content={
+        "status": "processed",
+        "event_id": new_event.id,
+        "type": new_event.type,
+        "pd_event_id": pd_event_id
+    })
