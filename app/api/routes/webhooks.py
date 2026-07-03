@@ -272,32 +272,22 @@ async def pagerduty_webhook_handler(
             logger.warning(f"PagerDuty {event_type} received but no incident ID in payload — ignoring.")
             return JSONResponse(status_code=200, content={"status": "ignored", "reason": "no pd_incident_id"})
 
-        # Search recent PagerDuty events for the matching PagerDuty incident ID
-        evt_result = await session.execute(  # type: ignore
-            select(Event).where(Event.source == "pagerduty").order_by(Event.created_at.desc()).limit(100)
+        # Find the original event by pd_incident_id column (fast indexed lookup)
+        orig_event_result = await session.execute(  # type: ignore
+            select(Event).where(
+                Event.source == "pagerduty",
+                Event.pd_incident_id == pd_incident_id,
+                Event.type == "pagerduty.incident"
+            ).order_by(Event.created_at.desc()).limit(1)
         )
-        pd_events = evt_result.scalars().all()
-        
-        matched_repo_id = None
-        for e in pd_events:
-            if e.payload:
-                event_block = e.payload.get("event", {})
-                # Try nested structures: event.data, event.incident, or fallback
-                data_block = event_block.get("data") or event_block.get("incident")
-                if not data_block and not isinstance(event_block, dict):
-                    # Fallback for alternative structures
-                    pass
-                if isinstance(data_block, dict):
-                    if data_block.get("id") == pd_incident_id:
-                        matched_repo_id = e.repo_id
-                        break
+        orig_event = orig_event_result.scalars().first()
 
         # Find the open or investigating incident for the matched repository
         matched_incident = None
-        if matched_repo_id:
+        if orig_event and orig_event.repo_id:
             inc_result = await session.execute(  # type: ignore
                 select(Incident).where(
-                    Incident.root_cause_repo_id == matched_repo_id,
+                    Incident.root_cause_repo_id == orig_event.repo_id,
                     Incident.status.in_(["open", "investigating"])
                 ).order_by(Incident.created_at.desc()).limit(1)
             )
@@ -357,6 +347,7 @@ async def pagerduty_webhook_handler(
         source="pagerduty",
         payload=payload,
         pd_event_id=pd_event_id,
+        pd_incident_id=pd_incident_id,
         message=f"PagerDuty incident: {title} (service: {pd_service_name})",
         severity="error"
     )

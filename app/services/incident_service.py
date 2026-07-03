@@ -4,6 +4,7 @@ Handles incident lifecycle, alert grouping, and cause correlation.
 """
 
 import logging
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
 from sqlmodel import select
@@ -140,7 +141,7 @@ async def get_or_create_incident(
     or create a new one, protected by an advisory lock.
     """
     # Use repo_id hash as advisory lock key to prevent concurrent creation
-    lock_key = abs(hash(repo_id)) % (2**31 - 1)
+    lock_key = int(hashlib.md5(repo_id.encode()).hexdigest(), 16) % (2**31 - 1)
     await session.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
 
     # Check for existing open incident for this repository
