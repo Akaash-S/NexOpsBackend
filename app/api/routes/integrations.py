@@ -304,8 +304,10 @@ async def github_callback(
     OAuth Callback. Validates the signed state token, exchanges the code for an access
     token, encrypts it, and saves it to the correct user's record.
     """
+    _frontend = settings.FRONTEND_URL.rstrip("/")
+
     if not code:
-        return RedirectResponse("/onboarding?error=missing_code")
+        return RedirectResponse(f"{_frontend}/onboarding?error=missing_code")
 
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="GitHub Client configuration is missing")
@@ -313,13 +315,13 @@ async def github_callback(
     # Validate the signed state token — reject the callback if it's invalid or expired
     if not state:
         logger.warning("GitHub OAuth callback received with no state parameter.")
-        return RedirectResponse("/onboarding?error=invalid_state")
+        return RedirectResponse(f"{_frontend}/onboarding?error=invalid_state")
 
     try:
         uid = _verify_oauth_state(state)
     except ValueError as state_err:
         logger.warning(f"GitHub OAuth callback state validation failed: {state_err}")
-        return RedirectResponse("/onboarding?error=invalid_state")
+        return RedirectResponse(f"{_frontend}/onboarding?error=invalid_state")
 
     # Exchange code for access token
     try:
@@ -342,12 +344,12 @@ async def github_callback(
             data = res.json()
             if "access_token" not in data:
                 logger.error(f"GitHub OAuth token exchange failed: {data}")
-                return RedirectResponse("/onboarding?error=oauth_failed")
+                return RedirectResponse(f"{_frontend}/onboarding?error=oauth_failed")
 
             access_token = data["access_token"]
     except Exception as oauth_err:
         logger.error(f"GitHub OAuth code exchange failed: {oauth_err}")
-        return RedirectResponse("/onboarding?error=oauth_failed")
+        return RedirectResponse(f"{_frontend}/onboarding?error=oauth_failed")
 
     # Encrypt and save the token to the user identified by the validated state token
     encrypted_token = encrypt_secret(access_token)
@@ -357,7 +359,7 @@ async def github_callback(
 
     if not user:
         logger.error(f"GitHub OAuth callback: no user found for uid={uid} from validated state.")
-        return RedirectResponse("/onboarding?error=user_not_found")
+        return RedirectResponse(f"{_frontend}/onboarding?error=user_not_found")
 
     user.github_access_token = encrypted_token
     session.add(user)
@@ -365,7 +367,7 @@ async def github_callback(
     invalidate_user_cache(user.id)
     logger.info(f"Successfully saved encrypted GitHub access token for user {user.id}")
 
-    return RedirectResponse("/onboarding?success=github_connected")
+    return RedirectResponse(f"{_frontend}/onboarding?success=github_connected")
 
 
 @router.get("/integrations/status")
