@@ -359,10 +359,11 @@ async def pagerduty_webhook_handler(
     background_tasks.add_task(_run_automation, new_event.id)
 
     logger.info(f"PagerDuty incident.triggered processed: NexOps event {new_event.id} "
-                f"repo={repo.name} pd_event_id={pd_event_id}")
+                f"repo={repo.name} pd_event_id={pd_event_id} pd_incident_id={pd_incident_id!r}")
     return JSONResponse(status_code=200, content={
         "status": "processed",
         "event_id": new_event.id,
         "type": new_event.type,
-        "pd_event_id": pd_event_id
+        "pd_event_id": pd_event_id,
+        "pd_incident_id": pd_incident_id
     })
