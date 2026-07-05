@@ -282,14 +282,14 @@ async def pagerduty_webhook_handler(
         )
         orig_event = orig_event_result.scalars().first()
 
-        # Find the open or investigating incident for the matched repository
+        # Find the open or investigating incident by pd_incident_id (direct FK lookup)
         matched_incident = None
-        if orig_event and orig_event.repo_id:
+        if orig_event and orig_event.pd_incident_id:
             inc_result = await session.execute(  # type: ignore
                 select(Incident).where(
-                    Incident.root_cause_repo_id == orig_event.repo_id,
+                    Incident.pd_incident_id == orig_event.pd_incident_id,
                     Incident.status.in_(["open", "investigating"])
-                ).order_by(Incident.created_at.desc()).limit(1)
+                ).limit(1)
             )
             matched_incident = inc_result.scalars().first()
 

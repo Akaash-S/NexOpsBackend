@@ -67,7 +67,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
             event.repo_id, 
             event.severity, 
             title=f"Systemic Failure: {event.message or event.type}",
-            impacted_repos=downstream
+            impacted_repos=downstream,
+            pd_incident_id=event.pd_incident_id
         )
         actions_taken["incident_id"] = incident.id
         

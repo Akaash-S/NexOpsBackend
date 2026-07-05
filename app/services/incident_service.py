@@ -134,7 +134,8 @@ async def get_or_create_incident(
     repo_id: str, 
     severity: str, 
     title: str,
-    impacted_repos: List[str] = []
+    impacted_repos: List[str] = [],
+    pd_incident_id: Optional[str] = None
 ) -> Incident:
     """
     Find an existing open incident for the same repository within the last 30 mins, 
@@ -159,6 +160,8 @@ async def get_or_create_incident(
         current_impacted = set(existing_incident.impacted_repos or [])
         current_impacted.update(impacted_repos)
         existing_incident.impacted_repos = list(current_impacted)
+        if pd_incident_id and not existing_incident.pd_incident_id:
+            existing_incident.pd_incident_id = pd_incident_id
         session.add(existing_incident)
         await session.flush()
         return existing_incident
@@ -170,6 +173,7 @@ async def get_or_create_incident(
         status="open",
         root_cause_repo_id=repo_id,
         impacted_repos=impacted_repos,
+        pd_incident_id=pd_incident_id,
         started_at=datetime.utcnow()
     )
     session.add(new_incident)
