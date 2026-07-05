@@ -90,19 +90,6 @@ def get_expected_columns(table_name: str) -> list:
     return []
 
 
-async def drop_all_tables():
-    """Drop all user tables with CASCADE."""
-    async with engine.begin() as conn:
-        # Disable FK checks temporarily for clean drop
-        await conn.execute(text("SET session_replication_role = 'replica'"))
-        tables = await get_table_list()
-        for t in tables:
-            await conn.execute(text(f"DROP TABLE IF EXISTS {t} CASCADE"))
-            print(f"  DROPPED: {t}")
-        await conn.execute(text("SET session_replication_role = 'origin'"))
-    print(f"  Dropped {len(tables)} tables.")
-
-
 async def create_all_tables():
     """Create all tables fresh from SQLModel metadata."""
     from sqlmodel import SQLModel
@@ -203,9 +190,12 @@ async def main():
         print(f"  TOTAL: {total_rows} rows across {len(tables)} tables")
     print()
 
-    # ── Phase 2: Drop ──────────────────────────────────────────────
-    print("--- Dropping all tables ---")
-    await drop_all_tables()
+    # ── Phase 2: Drop via schema reset (no superuser required) ─────
+    print("--- Dropping all tables via schema reset ---")
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+    print(f"  Schema recreated (dropped {len(tables)} tables)")
     print()
 
     # ── Phase 3: Create ─────────────────────────────────────────────

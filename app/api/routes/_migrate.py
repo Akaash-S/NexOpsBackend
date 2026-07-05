@@ -136,9 +136,22 @@ async def verify_migrations(x_migration_secret: str = Header(None)):
         ))
         cloud_providers_exists = cp_check.scalar()
 
+        # Row counts for all model-backed tables
+        row_counts = {}
+        for tbl in ["users", "repos", "events", "incidents", "alerts", "deployments", "dependencies", "cloud_providers", "candidate_causes"]:
+            r = await conn.execute(text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :t)"
+            ), {"t": tbl})
+            if r.scalar():
+                r2 = await conn.execute(text(f"SELECT count(*) FROM {tbl}"))
+                row_counts[tbl] = r2.scalar()
+            else:
+                row_counts[tbl] = None
+
     return {
         "columns_found": columns_found,
         "cloud_providers_exists": cloud_providers_exists,
+        "row_counts": row_counts,
     }
 
 
@@ -167,13 +180,11 @@ async def reset_database(
         tables_before = [row[0] for row in r]
     results.append(f"Tables before reset: {len(tables_before)}")
 
-    # ── Drop all tables (CASCADE to handle FKs) ──
+    # ── Drop all tables via schema reset (no superuser required) ──
     async with engine.begin() as conn:
-        await conn.execute(text("SET session_replication_role = 'replica'"))
-        for t in tables_before:
-            await conn.execute(text(f"DROP TABLE IF EXISTS {t} CASCADE"))
-            results.append(f"  Dropped: {t}")
-        await conn.execute(text("SET session_replication_role = 'origin'"))
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+    results.append(f"Schema recreated (dropped {len(tables_before)} tables)")
 
     # ── Create all tables from models ──
     async with engine.begin() as conn:
