@@ -103,7 +103,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, cloud_providers, executor
+from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, cloud_providers, executor, _diag
 
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
@@ -118,6 +118,7 @@ app.include_router(incidents.router, prefix=settings.API_PREFIX)
 app.include_router(deployments.router, prefix=settings.API_PREFIX)
 app.include_router(cloud_providers.router, prefix=settings.API_PREFIX)
 app.include_router(executor.router, prefix=settings.API_PREFIX)
+app.include_router(_diag.router, prefix=settings.API_PREFIX)
 
 from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect, Query
