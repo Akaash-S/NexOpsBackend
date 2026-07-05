@@ -1,11 +1,16 @@
 """
 Temporary endpoint: run pending database migrations against production.
+Also provides POST /_internal/reset-db for full database reset (drop + re-create).
 Remove this file after use (see NEXOPS_PRODUCTION_MIGRATION_FIX_REPORT.md step 6).
 """
 import os
 from fastapi import APIRouter, Header, HTTPException
 from sqlalchemy import text
 from app.core.database import engine
+from sqlmodel import SQLModel
+
+# Force model registration so SQLModel.metadata knows all tables
+import app.models  # noqa: F401
 
 router = APIRouter(tags=["_internal"])
 
@@ -135,3 +140,72 @@ async def verify_migrations(x_migration_secret: str = Header(None)):
         "columns_found": columns_found,
         "cloud_providers_exists": cloud_providers_exists,
     }
+
+
+@router.post("/_internal/reset-db")
+async def reset_database(
+    x_migration_secret: str = Header(None),
+    x_confirm_reset: str = Header(None),
+):
+    """DROP all tables, recreate from SQLModel definitions, add partial indexes."""
+    if not MIGRATION_SECRET or x_migration_secret != MIGRATION_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if x_confirm_reset != "yes":
+        raise HTTPException(status_code=400, detail="Set X-Confirm-Reset: yes to confirm")
+
+    import app.models  # noqa: F401 — ensure all models registered
+
+    results = []
+    errors = []
+
+    # ── Pre-reset state ──
+    async with engine.connect() as conn:
+        r = await conn.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        ))
+        tables_before = [row[0] for row in r]
+    results.append(f"Tables before reset: {len(tables_before)}")
+
+    # ── Drop all tables (CASCADE to handle FKs) ──
+    async with engine.begin() as conn:
+        await conn.execute(text("SET session_replication_role = 'replica'"))
+        for t in tables_before:
+            await conn.execute(text(f"DROP TABLE IF EXISTS {t} CASCADE"))
+            results.append(f"  Dropped: {t}")
+        await conn.execute(text("SET session_replication_role = 'origin'"))
+
+    # ── Create all tables from models ──
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    results.append("Tables recreated from SQLModel metadata")
+
+    # ── Partial unique index (can't express in model fields) ──
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_events_pd_event_id_not_null "
+                "ON events (pd_event_id) WHERE pd_event_id IS NOT NULL"
+            ))
+        results.append("Created: uq_events_pd_event_id_not_null")
+    except Exception as e:
+        msg = f"FAILED partial unique index: {e}"
+        results.append(msg)
+        errors.append(msg)
+
+    # ── Verify ──
+    async with engine.connect() as conn:
+        r = await conn.execute(text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        ))
+        tables_after = [row[0] for row in r]
+    results.append(f"Tables after reset: {len(tables_after)}")
+
+    for t in sorted(tables_after):
+        r = await conn.execute(text(f"SELECT count(*) FROM {t}"))
+        count = r.scalar()
+        results.append(f"  {t}: {count} rows")
+
+    success = len(errors) == 0
+    return {"status": "done" if success else "done_with_errors", "results": results, "errors": errors or None}

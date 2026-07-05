@@ -23,5 +23,4 @@ def decrypt_secret(cipher_text: str) -> str:
         cipher = get_cipher()
         return cipher.decrypt(cipher_text.encode()).decode()
     except Exception as e:
-        print(f"Decryption error: {e}")
-        return cipher_text # Return as is if decryption fails (might be unencrypted)
+        raise ValueError(f"Failed to decrypt stored credential: {e}")
