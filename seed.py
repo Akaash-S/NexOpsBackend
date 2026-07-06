@@ -234,8 +234,13 @@ async def seed(user_id: str = None):
         await session.commit()
         
         print("Seeding Deployments...")
+        from app.services.impact_service import calculate_deployment_risk
         for data in DEPLOYMENTS:
-            session.add(Deployment(**data))
+            dep_data = {k: v for k, v in data.items() if k != "version"}
+            risk_calc = await calculate_deployment_risk(session, dep_data["repo_id"])
+            dep_data["risk_score"] = risk_calc.get("risk_score", 0.0)
+            dep_data["risk_basis"] = risk_calc.get("risk_basis", "")
+            session.add(Deployment(**dep_data))
         await session.commit()
         
     print("\nSeed complete! NexOps backend is fully aligned and ready.")
