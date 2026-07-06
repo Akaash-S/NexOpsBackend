@@ -19,7 +19,6 @@ class Deployment(SQLModel, table=True):
     )
     repo_id: str = Field(foreign_key="repos.id", index=True)
     
-    version: str = Field(max_length=100)
     environment: str = Field(default="staging", index=True)  # production | staging | preview
     
     status: str = Field(default="pending", index=True) # pending | running | success | failed | rolled_back
@@ -29,7 +28,10 @@ class Deployment(SQLModel, table=True):
     # Metadata
     commit_hash: Optional[str] = Field(default=None, max_length=40)
     changelog: Optional[str] = Field(default=None, max_length=2000)
-    provider_id: Optional[str] = Field(default=None, index=True)
+    
+    # Risk Assessment
+    risk_score: float = Field(default=0.0)
+    risk_basis: str = Field(default="")
     
     # Timestamps
     deployed_at: datetime = Field(default_factory=datetime.utcnow)

@@ -40,7 +40,25 @@ async def trigger_deployment(
     Simulate a deployment trigger. 
     Creates a deployment record and an associated event.
     """
-    deployment = Deployment(**data.model_dump())
+    # Calculate risk score
+    from app.services.impact_service import calculate_deployment_risk
+    risk_calc = await calculate_deployment_risk(session, data.repo_id)
+    risk_score = risk_calc.get("risk_score", 0.0)
+    risk_basis = risk_calc.get("risk_basis", "")
+
+    deployment = Deployment(
+        repo_id=data.repo_id,
+        environment=data.environment,
+        status=data.status,
+        deployed_by=data.deployed_by or user.email,
+        commit_hash=data.commit_hash,
+        changelog=data.changelog,
+        risk_score=risk_score,
+        risk_basis=risk_basis,
+        deployed_at=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
+    )
     session.add(deployment)
     await session.flush()
     await session.refresh(deployment)
@@ -52,9 +70,9 @@ async def trigger_deployment(
         source="system",
         payload={
             "deployment_id": deployment.id,
-            "version": data.version,
             "environment": data.environment,
-            "provider_id": data.provider_id
+            "risk_score": risk_score,
+            "risk_basis": risk_basis
         }
     )
     

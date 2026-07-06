@@ -20,30 +20,12 @@ router = APIRouter(prefix="/events", tags=["Events"])
 async def _run_automation(event_id: str):
     """Background task to process events without blocking the ingestion response."""
     from app.core.database import async_session
-    from app.services.orchestrator_service import execute_cloud_deployment
     
     async with async_session() as session:
         event = await event_service.get_event_by_id(session, event_id)
         if event:
             # 1. Run general automation (alerts, repo status, etc.)
             await process_event(session, event)
-            
-            # 2. If it's a manual deployment with a cloud provider, trigger orchestration
-            if event.type == "deploy.started" and event.payload:
-                provider_id = event.payload.get("provider_id")
-                if provider_id:
-                    repo_id = event.repo_id
-                    version = event.payload.get("version", "unknown")
-                    environment = event.payload.get("environment", "staging")
-                    
-                    # This will perform real API calls to Vercel/AWS/etc.
-                    await execute_cloud_deployment(
-                        session, 
-                        repo_id, 
-                        provider_id, 
-                        version, 
-                        environment
-                    )
 
 
 @router.post("", response_model=EventResponse, status_code=201)

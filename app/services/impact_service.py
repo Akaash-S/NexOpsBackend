@@ -118,3 +118,109 @@ async def calculate_blast_radius(session: AsyncSession, repo_id: str) -> dict:
         "downstream_count": len(all_downstream),
         "downstream_repos": all_downstream
     }
+
+
+async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict:
+    """
+    Calculate the deployment risk score and risk basis for a repository.
+    Reuses the exact weights from correlate_incident_causes() based on active/recent incident history.
+    """
+    from datetime import datetime, timedelta
+    from app.models.incident import Incident
+    from app.models.candidate_cause import CandidateCause
+    
+    # 1. Get downstream dependencies
+    downstream_repos = await get_downstream_repos(session, repo_id)
+    
+    # 2. Check conditions
+    now = datetime.utcnow()
+    seven_days_ago = now - timedelta(days=7)
+    ninety_days_ago = now - timedelta(days=90)
+    
+    # Same repo incidents in last 7 days
+    same_repo_query = select(Incident).where(
+        Incident.root_cause_repo_id == repo_id,
+        Incident.created_at >= seven_days_ago
+    )
+    same_repo_res = await session.execute(same_repo_query)
+    same_repo_incidents = same_repo_res.scalars().all()
+    
+    # Downstream incidents in last 7 days
+    downstream_incidents = []
+    if downstream_repos:
+        downstream_query = select(Incident).where(
+            Incident.root_cause_repo_id.in_(downstream_repos),
+            Incident.created_at >= seven_days_ago
+        )
+        downstream_res = await session.execute(downstream_query)
+        downstream_incidents = downstream_res.scalars().all()
+        
+    # Past confirmed root causes in last 90 days
+    confirmed_query = select(CandidateCause).where(
+        CandidateCause.repo_id == repo_id,
+        CandidateCause.confirmed == True,
+        CandidateCause.created_at >= ninety_days_ago
+    )
+    confirmed_res = await session.execute(confirmed_query)
+    confirmed_causes = confirmed_res.scalars().all()
+    
+    # If isolated (no downstream dependents) and no recent incidents/confirmed causes
+    if not downstream_repos and not same_repo_incidents and not confirmed_causes:
+        return {
+            "risk_score": 0.0,
+            "risk_basis": "Low risk. No downstream services depend on this repository and no recent incidents."
+        }
+        
+    score = 15.0
+    reasons = ["Base score (+15.0)"]
+    
+    # Same-Repo Incidents (Last 7 Days)
+    has_active_same = any(inc.status == "open" for inc in same_repo_incidents)
+    has_resolved_same = any(inc.status == "resolved" for inc in same_repo_incidents)
+    
+    if has_active_same:
+        score += 35.0
+        reasons.append("Active open incident on same repository (+35.0)")
+    if has_resolved_same:
+        score += 15.0
+        reasons.append("Resolved incident on same repository in last 7 days (+15.0)")
+        
+    # Temporal proximity to most recent incident on the repo
+    if same_repo_incidents:
+        most_recent_inc = max(same_repo_incidents, key=lambda inc: inc.created_at)
+        time_diff = (now - most_recent_inc.created_at).total_seconds()
+        time_diff = max(0.0, time_diff)
+        if time_diff <= 900:  # 15 minutes
+            score += 25.0
+            reasons.append("Temporal proximity to same-repo incident within 15 min (+25.0)")
+        elif time_diff <= 3600:  # 60 minutes
+            score += 15.0
+            reasons.append("Temporal proximity to same-repo incident within 60 min (+15.0)")
+        elif time_diff <= 7200:  # 120 minutes
+            score += 5.0
+            reasons.append("Temporal proximity to same-repo incident within 120 min (+5.0)")
+            
+    # Downstream Dependent Incidents (Last 7 Days)
+    has_active_downstream = any(inc.status == "open" for inc in downstream_incidents)
+    has_resolved_downstream = any(inc.status == "resolved" for inc in downstream_incidents)
+    
+    if has_active_downstream:
+        score += 20.0
+        reasons.append("Active open incident on downstream dependent repository (+20.0)")
+    if has_resolved_downstream:
+        score += 10.0
+        reasons.append("Resolved incident on downstream dependent repository in last 7 days (+10.0)")
+        
+    # Past Confirmed Root Causes (Last 90 Days)
+    if confirmed_causes:
+        score += 15.0
+        reasons.append("Repository was confirmed root cause of an incident within 90 days (+15.0)")
+        
+    # Cap score
+    score = min(100.0, max(15.0, score))
+    basis_str = ", ".join(reasons) + f". Final Risk Score: {score:.1f}"
+    
+    return {
+        "risk_score": score,
+        "risk_basis": basis_str
+    }

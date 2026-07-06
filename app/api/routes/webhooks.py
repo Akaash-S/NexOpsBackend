@@ -178,6 +178,77 @@ async def github_webhook_handler(
         else:
             return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Issue action {action} not processed"})
 
+    elif x_github_event == "deployment_status":
+        event_type = "deployment.status"
+        deployment_data = payload.get("deployment", {})
+        status_data = payload.get("deployment_status", {})
+        
+        commit_hash = deployment_data.get("sha", "")
+        environment = deployment_data.get("environment", "staging")
+        gh_state = status_data.get("state", "pending")
+        deployed_by = payload.get("sender", {}).get("login", "unknown")
+        changelog = deployment_data.get("description") or status_data.get("description") or f"Deployment of commit {commit_hash[:7] if commit_hash else ''}"
+        
+        if gh_state in ("failure", "error"):
+            status = "failed"
+            severity = "warning"
+        elif gh_state == "success":
+            status = "success"
+            severity = "info"
+        elif gh_state == "in_progress":
+            status = "running"
+            severity = "info"
+        else:
+            status = gh_state
+            severity = "info"
+            
+        # Calculate risk score
+        from app.services.impact_service import calculate_deployment_risk
+        risk_calc = await calculate_deployment_risk(session, repo.id)
+        risk_score = risk_calc.get("risk_score", 0.0)
+        risk_basis = risk_calc.get("risk_basis", "")
+        
+        # Save or update Deployment row
+        from app.models.deployment import Deployment
+        deploy_query = select(Deployment).where(
+            Deployment.repo_id == repo.id,
+            Deployment.commit_hash == commit_hash,
+            Deployment.environment == environment
+        )
+        deploy_result = await session.execute(deploy_query)
+        db_deployment = deploy_result.scalars().first()
+        
+        now = datetime.utcnow()
+        if db_deployment:
+            db_deployment.status = status
+            db_deployment.finished_at = now if status in ("success", "failed") else None
+            db_deployment.risk_score = risk_score
+            db_deployment.risk_basis = risk_basis
+            db_deployment.deployed_by = deployed_by
+            db_deployment.changelog = changelog
+            db_deployment.updated_at = now
+            session.add(db_deployment)
+            logger.info(f"Updated deployment {db_deployment.id} for repo {repo.name} to status {status}")
+        else:
+            db_deployment = Deployment(
+                repo_id=repo.id,
+                commit_hash=commit_hash,
+                environment=environment,
+                status=status,
+                deployed_by=deployed_by,
+                changelog=changelog,
+                risk_score=risk_score,
+                risk_basis=risk_basis,
+                deployed_at=now,
+                finished_at=now if status in ("success", "failed") else None,
+                created_at=now,
+                updated_at=now
+            )
+            session.add(db_deployment)
+            logger.info(f"Created new deployment for repo {repo.name} with status {status}")
+            
+        message = f"Deployment status for {repo.name} in {environment} updated to {status}."
+
     if event_type == "unknown":
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Event type {x_github_event} not mapped"})
 
