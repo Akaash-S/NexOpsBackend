@@ -58,21 +58,26 @@ async def get_topology(
     # Build a set of failing repo IDs for cascade highlighting
     failing_ids = {r.id for r in repos if r.ci_status == "failing"}
 
-    nodes = [
-        TopologyNode(
-            id=r.id,
-            name=r.name,
-            platform=r.platform,
-            language=r.language,
-            health_score=r.health_score,
-            ci_status=r.ci_status,
-            open_issues=r.open_issues,
-            vulnerabilities=r.vulnerabilities,
-            activity=r.activity,
-            owner=r.owner,
+    from app.services.alert_service import get_noisy_rules
+
+    nodes = []
+    for r in repos:
+        noisy_rules = await get_noisy_rules(session, r.id)
+        nodes.append(
+            TopologyNode(
+                id=r.id,
+                name=r.name,
+                platform=r.platform,
+                language=r.language,
+                health_score=r.health_score,
+                ci_status=r.ci_status,
+                open_issues=r.open_issues,
+                vulnerabilities=r.vulnerabilities,
+                activity=r.activity,
+                owner=r.owner,
+                noisy_rule_ids=noisy_rules,
+            )
         )
-        for r in repos
-    ]
 
     edges = [
         TopologyEdge(

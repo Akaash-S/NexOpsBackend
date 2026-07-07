@@ -48,3 +48,26 @@ async def complete_onboarding(
     await session.refresh(db_user)
     invalidate_user_cache(user.id)
     return db_user
+
+
+@router.patch("/me/preferences", response_model=UserResponse)
+async def update_preferences(
+    preferences: dict,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Update current user's preferences."""
+    db_user = await session.get(User, current_user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    current_prefs = db_user.preferences or {}
+    updated_prefs = {**current_prefs, **preferences}
+    db_user.preferences = updated_prefs
+    
+    db_user.updated_at = datetime.utcnow()
+    session.add(db_user)
+    await session.commit()
+    await session.refresh(db_user)
+    invalidate_user_cache(current_user.id)
+    return db_user

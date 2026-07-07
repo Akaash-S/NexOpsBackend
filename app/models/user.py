@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from sqlalchemy import Column, JSON
 
 
 class User(SQLModel, table=True):
@@ -28,6 +29,10 @@ class User(SQLModel, table=True):
     pagerduty_webhook_secret: Optional[str] = Field(default=None)
     pagerduty_webhook_subscription_id: Optional[str] = Field(default=None)
     onboarding_completed: bool = Field(default=False)
+    preferences: Optional[dict] = Field(
+        default_factory=dict,
+        sa_column=Column("preferences", JSON, nullable=True)
+    )
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -36,6 +36,7 @@ class TopologyNode(BaseSchema):
     vulnerabilities: int
     activity: float
     owner: Optional[str] = None
+    noisy_rule_ids: list[str] = []
 
 
 class TopologyEdge(BaseSchema):

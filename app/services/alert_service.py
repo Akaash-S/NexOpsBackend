@@ -143,3 +143,62 @@ async def get_alert_counts(session: AsyncSession, user_id: Optional[str] = None,
         "medium": row.medium or 0,
         "low": row.low or 0,
     }
+
+
+async def get_noisy_rules(session: AsyncSession, repo_id: str) -> List[str]:
+    """
+    Determine which alert rules (grouped by alert title) are noisy for a given repo.
+    A rule is noisy if:
+    - It triggered at least 3 times in the last 30 days.
+    - The alerts under this rule rarely correlate with a confirmed incident (correlation rate < 20%).
+    """
+    from datetime import timedelta
+    from app.models.candidate_cause import CandidateCause
+    
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    
+    # Fetch alerts for this repo in last 30 days
+    alert_query = select(Alert).where(Alert.repo_id == repo_id, Alert.created_at >= thirty_days_ago)
+    alert_result = await session.execute(alert_query)
+    alerts = list(alert_result.scalars().all())
+    
+    if not alerts:
+        return []
+        
+    # Fetch confirmed causes for this repo in last 30 days
+    cause_query = select(CandidateCause).where(
+        CandidateCause.repo_id == repo_id,
+        CandidateCause.confirmed == True,
+        CandidateCause.created_at >= thirty_days_ago
+    )
+    cause_result = await session.execute(cause_query)
+    confirmed_causes = list(cause_result.scalars().all())
+    
+    # Group alerts by title (rule name)
+    grouped_alerts = {}
+    for a in alerts:
+        grouped_alerts.setdefault(a.title, []).append(a)
+        
+    noisy_rules = []
+    for title, group in grouped_alerts.items():
+        if len(group) < 3:
+            continue
+            
+        correlated_count = 0
+        for alert in group:
+            # Check if there is any confirmed cause within 4 hours of the alert
+            correlated = False
+            for cause in confirmed_causes:
+                time_diff = abs((cause.created_at - alert.created_at).total_seconds())
+                if time_diff <= 4 * 3600:
+                    correlated = True
+                    break
+            if correlated:
+                correlated_count += 1
+                
+        correlation_rate = correlated_count / len(group)
+        if correlation_rate < 0.20:
+            noisy_rules.append(title)
+            
+    return noisy_rules
+

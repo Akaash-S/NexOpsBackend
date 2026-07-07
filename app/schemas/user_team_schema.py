@@ -14,6 +14,7 @@ class UserResponse(BaseSchema):
     avatar_url: Optional[str] = None
     role: str
     onboarding_completed: bool
+    preferences: Optional[dict] = None
     created_at: datetime
 
 
