@@ -84,6 +84,25 @@ class Settings(BaseSettings):
             return url.replace("postgres://", "postgresql://", 1)
         return url
 
+    @property
+    def direct_database_url(self) -> str:
+        """Get the direct (non-pooled) Neon database URL by removing '-pooler' from the host."""
+        url = self.DATABASE_URL
+        if "-pooler" in url:
+            url = url.replace("-pooler", "", 1)
+        return url
+
+    @property
+    def direct_async_database_url(self) -> str:
+        """Get direct (non-pooled) async database URL by removing '-pooler' and using asyncpg driver."""
+        url = self.direct_database_url
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        url = url.split("?")[0]
+        return url
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

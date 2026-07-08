@@ -15,3 +15,8 @@ tests/*
 scratch/*
 service-account.json
 docs/
+legacy_migrations/*
+alembic.ini
+pytest.ini
+alembic/*
+backups/*

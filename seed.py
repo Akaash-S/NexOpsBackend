@@ -178,17 +178,40 @@ DEPLOYMENTS = [
 
 async def seed(user_id: str = None):
     print("Starting database seed process...")
-    async with engine.begin() as conn:
-        for table in [
-            'candidate_causes', 'deployments', 'incidents', 'dependencies', 
-            'alerts', 'events', 'repos', 'users', 'pipelines', 
-            'rules', 'workspace_members', 'invitations', 'teams', 
-            'clusters', 'workspaces'
-        ]:
-            await conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE;"))
+    local_engine = create_async_engine(settings.async_database_url, echo=False)
+    local_session_factory = async_sessionmaker(local_engine, class_=AsyncSession, expire_on_commit=False)
+    
+    # 1. Ensure tables exist
+    async with local_engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
         
-    async with session_factory() as session:
+    # 2. Delete data in dependency-respecting order (child to parent) to avoid locks and FK violations
+    tables = [
+        'candidate_causes',
+        'deployments',
+        'incidents',
+        'dependencies',
+        'alerts',
+        'events',
+        'repos',
+        'users',
+        'pipelines',
+        'rules',
+        'workspace_members',
+        'invitations',
+        'teams',
+        'clusters',
+        'workspaces'
+    ]
+    for table in tables:
+        try:
+            async with local_engine.begin() as conn:
+                await conn.execute(text(f"DELETE FROM {table};"))
+        except Exception as e:
+            # Table might not exist or other error, which is fine to ignore
+            pass
+        
+    async with local_session_factory() as session:
         print("Seeding Users...")
         for data in USERS:
             session.add(User(**data))
@@ -243,6 +266,7 @@ async def seed(user_id: str = None):
             session.add(Deployment(**dep_data))
         await session.commit()
         
+    await local_engine.dispose()
     print("\nSeed complete! NexOps backend is fully aligned and ready.")
 
 if __name__ == "__main__":
