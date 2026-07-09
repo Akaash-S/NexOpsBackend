@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str
+    MIGRATION_DATABASE_URL: Optional[str] = None
+    STAGING_DATABASE_URL: Optional[str] = None
 
     # Redis
     REDIS_URL: str
@@ -84,6 +86,17 @@ class Settings(BaseSettings):
             return url.replace("postgres://", "postgresql://", 1)
         return url
 
+    def to_direct_async_url(self, url: str) -> str:
+        """Get direct (non-pooled) async database URL by removing '-pooler' and using asyncpg driver."""
+        if "-pooler" in url:
+            url = url.replace("-pooler", "", 1)
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        url = url.split("?")[0]
+        return url
+
     @property
     def direct_database_url(self) -> str:
         """Get the direct (non-pooled) Neon database URL by removing '-pooler' from the host."""
@@ -94,14 +107,22 @@ class Settings(BaseSettings):
 
     @property
     def direct_async_database_url(self) -> str:
-        """Get direct (non-pooled) async database URL by removing '-pooler' and using asyncpg driver."""
-        url = self.direct_database_url
-        if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-        url = url.split("?")[0]
-        return url
+        """Get direct (non-pooled) async database URL for production by removing '-pooler'."""
+        return self.to_direct_async_url(self.DATABASE_URL)
+
+    @property
+    def direct_async_migration_database_url(self) -> str:
+        """Get direct (non-pooled) async database URL for migration branch."""
+        if not self.MIGRATION_DATABASE_URL:
+            raise ValueError("MIGRATION_DATABASE_URL is not set in environment or .env file")
+        return self.to_direct_async_url(self.MIGRATION_DATABASE_URL)
+
+    @property
+    def direct_async_staging_database_url(self) -> str:
+        """Get direct (non-pooled) async database URL for staging branch."""
+        if not self.STAGING_DATABASE_URL:
+            raise ValueError("STAGING_DATABASE_URL is not set in environment or .env file")
+        return self.to_direct_async_url(self.STAGING_DATABASE_URL)
 
     class Config:
         env_file = ".env"

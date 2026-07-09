@@ -35,3 +35,4 @@ class Alert(SQLModel, table=True):
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    last_updated_at: Optional[datetime] = Field(default=None, index=True)
