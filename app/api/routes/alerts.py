@@ -22,7 +22,7 @@ async def alert_counts(
     user: User = Depends(get_current_user),
 ):
     """Get alert counts grouped by severity, scoped to current user."""
-    return await alert_service.get_alert_counts(session, user_id=user.id, repo_id=repo_id)
+    return await alert_service.get_alert_counts(session, workspace_id=user.workspace_id, repo_id=repo_id)
 
 
 @router.get("", response_model=List[AlertResponse])
@@ -38,7 +38,7 @@ async def list_alerts(
     """List alerts with optional filtering, scoped to current user."""
     return await alert_service.get_alerts(
         session,
-        user_id=user.id,
+        workspace_id=user.workspace_id,
         repo_id=repo_id,
         severity=severity,
         resolved=resolved,
@@ -67,7 +67,7 @@ async def resolve_alert(
     user: User = Depends(get_current_user),
 ):
     """Resolve an alert, scoped to current user."""
-    alert = await alert_service.resolve_alert(session, alert_id, user_id=user.id)
+    alert = await alert_service.resolve_alert(session, alert_id, workspace_id=user.workspace_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return alert
@@ -80,7 +80,7 @@ async def acknowledge_alert(
     user: User = Depends(get_current_user),
 ):
     """Acknowledge an alert without resolving it, scoped to current user."""
-    alert = await alert_service.acknowledge_alert(session, alert_id, user_id=user.id)
+    alert = await alert_service.acknowledge_alert(session, alert_id, workspace_id=user.workspace_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return alert

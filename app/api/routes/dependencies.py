@@ -35,18 +35,18 @@ async def get_topology(
     Return the topology graph for the authenticated user's repos.
     Only repos belonging to the current user are included.
     """
-    repo_query = select(Repo).where(Repo.user_id == current_user.id)
+    repo_query = select(Repo).where(Repo.workspace_id == current_user.workspace_id)
     if cluster_id:
         repo_query = repo_query.where(Repo.cluster_id == cluster_id)
-    elif workspace_id:
-        repo_query = repo_query.where(Repo.workspace_id == workspace_id)
     repo_result = await session.execute(repo_query)
     repos = list(repo_result.scalars().all())
 
     repo_ids = {r.id for r in repos}
 
     # Fetch dependencies between repos in this scope
-    dep_result = await session.execute(select(Dependency))
+    dep_result = await session.execute(
+        select(Dependency).where(Dependency.workspace_id == current_user.workspace_id)
+    )
     all_deps = list(dep_result.scalars().all())
 
     # Only include edges where both endpoints are in scope
@@ -95,8 +95,13 @@ async def get_topology(
 
 
 @router.get("", response_model=List[DependencyResponse])
-async def list_dependencies(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Dependency))
+async def list_dependencies(
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(Dependency).where(Dependency.workspace_id == current_user.workspace_id)
+    )
     return list(result.scalars().all())
 
 
@@ -104,8 +109,13 @@ async def list_dependencies(session: AsyncSession = Depends(get_session)):
 async def create_dependency(
     data: DependencyCreate,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """Persist a new dependency edge (called when user draws a connection)."""
+    # Verify repository ownership first
+    source_repo = await session.get(Repo, data.source_repo_id)
+    if not source_repo or source_repo.workspace_id != current_user.workspace_id:
+        raise HTTPException(status_code=403, detail="Source repository access denied")
     # Prevent self-loops
     if data.source_repo_id == data.target_repo_id:
         raise HTTPException(status_code=400, detail="A repo cannot depend on itself")
@@ -125,6 +135,7 @@ async def create_dependency(
         target_repo_id=data.target_repo_id,
         label=data.label,
         type=data.type or "api",
+        workspace_id=current_user.workspace_id,
     )
     session.add(dep)
     await session.commit()
@@ -136,9 +147,10 @@ async def create_dependency(
 async def delete_dependency(
     dependency_id: str,
     session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     dep = await session.get(Dependency, dependency_id)
-    if not dep:
+    if not dep or dep.workspace_id != current_user.workspace_id:
         raise HTTPException(status_code=404, detail="Dependency not found")
     await session.delete(dep)
     await session.commit()

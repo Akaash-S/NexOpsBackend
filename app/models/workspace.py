@@ -1,0 +1,27 @@
+"""
+Workspace Model
+Represents a first-class tenant workspace in NexOps.
+"""
+
+import uuid
+from datetime import datetime
+from typing import Optional
+from sqlmodel import SQLModel, Field
+
+
+class Workspace(SQLModel, table=True):
+    __tablename__ = "workspaces"
+
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        primary_key=True,
+        index=True,
+    )
+    name: str = Field(max_length=255)
+    color: str = Field(default="blue")
+    description: Optional[str] = Field(default=None, max_length=500)
+    provider: str = Field(default="custom")
+    status: str = Field(default="connected")
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

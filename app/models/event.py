@@ -19,6 +19,7 @@ class Event(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     type: str = Field(
         sa_column=Column(String, nullable=False, index=True)
     )  # repo.updated | ci.failed | ci.success | pr.opened | pr.merged | issue.created | deploy.started | deploy.failed

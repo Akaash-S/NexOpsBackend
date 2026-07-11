@@ -69,7 +69,7 @@ async def list_events(
     """List events with optional filtering, scoped to current user."""
     events = await event_service.get_events(
         session,
-        user_id=user.id,
+        workspace_id=user.workspace_id,
         repo_id=repo_id,
         event_type=type,
         processed=processed,

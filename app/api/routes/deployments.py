@@ -20,7 +20,7 @@ async def list_deployments(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    query = select(Deployment)
+    query = select(Deployment).where(Deployment.workspace_id == user.workspace_id)
     if repo_id:
         query = query.where(Deployment.repo_id == repo_id)
     if environment:
@@ -40,6 +40,11 @@ async def trigger_deployment(
     Simulate a deployment trigger. 
     Creates a deployment record and an associated event.
     """
+    from app.models.repo import Repo
+    repo = await session.get(Repo, data.repo_id)
+    if not repo or repo.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=403, detail="Repository not found or access denied")
+
     # Calculate risk score
     from app.services.impact_service import calculate_deployment_risk
     risk_calc = await calculate_deployment_risk(session, data.repo_id)
@@ -55,6 +60,7 @@ async def trigger_deployment(
         changelog=data.changelog,
         risk_score=risk_score,
         risk_basis=risk_basis,
+        workspace_id=user.workspace_id,
         deployed_at=datetime.utcnow(),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()

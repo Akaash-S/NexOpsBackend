@@ -23,17 +23,20 @@ async def create_event(session: AsyncSession, data: EventCreate, user_id: Option
     if not data.repo_id:
         raise ValueError("repo_id is required to create an event")
         
-    if user_id:
-        from app.models.repo import Repo
-        repo = await session.get(Repo, data.repo_id)
-        if not repo or repo.user_id != user_id:
-            raise ValueError("Repository not found or access denied")
+    from app.models.repo import Repo
+    repo = await session.get(Repo, data.repo_id)
+    if not repo:
+        raise ValueError("Repository not found")
+        
+    if user_id and repo.user_id != user_id:
+        raise ValueError("Access denied")
 
     event = Event(
         type=data.type,
         repo_id=data.repo_id,
         source=data.source,
         payload=data.payload,
+        workspace_id=repo.workspace_id,
     )
     session.add(event)
     await session.commit()
@@ -44,18 +47,17 @@ async def create_event(session: AsyncSession, data: EventCreate, user_id: Option
 
 async def get_events(
     session: AsyncSession,
-    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     repo_id: Optional[str] = None,
     event_type: Optional[str] = None,
     processed: Optional[bool] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> List[Event]:
-    """Fetch events with optional filtering, optionally scoped to a user's repositories."""
+    """Fetch events with optional filtering, optionally scoped to a workspace."""
     query = select(Event)
-    if user_id:
-        from app.models.repo import Repo
-        query = query.join(Repo, Event.repo_id == Repo.id).where(Repo.user_id == user_id)
+    if workspace_id:
+        query = query.where(Event.workspace_id == workspace_id)
     if repo_id:
         query = query.where(Event.repo_id == repo_id)
     if event_type:

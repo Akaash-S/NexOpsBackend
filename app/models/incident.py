@@ -19,6 +19,7 @@ class Incident(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     cluster_id: Optional[str] = Field(default=None, index=True)
     
     title: str = Field(max_length=255)

@@ -29,7 +29,7 @@ async def list_incidents(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    query = select(Incident).join(Repo, Incident.root_cause_repo_id == Repo.id).where(Repo.user_id == user.id)
+    query = select(Incident).where(Incident.workspace_id == user.workspace_id)
     if status:
         query = query.where(Incident.status == status)
     if cluster_id:
@@ -73,8 +73,7 @@ async def get_incident(
     # Verify ownership
     incident_result = await session.execute(
         select(Incident)
-        .join(Repo, Incident.root_cause_repo_id == Repo.id)
-        .where(Incident.id == incident_id, Repo.user_id == user.id)
+        .where(Incident.id == incident_id, Incident.workspace_id == user.workspace_id)
     )
     incident = incident_result.scalar_one_or_none()
     if not incident:
@@ -97,8 +96,7 @@ async def resolve_incident(
     # Verify ownership
     incident_result = await session.execute(
         select(Incident)
-        .join(Repo, Incident.root_cause_repo_id == Repo.id)
-        .where(Incident.id == incident_id, Repo.user_id == user.id)
+        .where(Incident.id == incident_id, Incident.workspace_id == user.workspace_id)
     )
     incident = incident_result.scalar_one_or_none()
     if not incident:
@@ -128,8 +126,7 @@ async def submit_feedback(
     # 1. Fetch incident and verify ownership
     incident_result = await session.execute(
         select(Incident)
-        .join(Repo, Incident.root_cause_repo_id == Repo.id)
-        .where(Incident.id == incident_id, Repo.user_id == user.id)
+        .where(Incident.id == incident_id, Incident.workspace_id == user.workspace_id)
     )
     incident = incident_result.scalar_one_or_none()
     if not incident:

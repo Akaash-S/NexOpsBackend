@@ -32,8 +32,7 @@ async def list_repos(
     """List repositories, optionally filtered by workspace or cluster, scoped to the current user."""
     return await repo_service.get_repos(
         session,
-        user_id=user.id,
-        workspace_id=workspace_id,
+        workspace_id=user.workspace_id,
         cluster_id=cluster_id,
         platform=platform,
         limit=limit,
@@ -51,7 +50,7 @@ async def search_repos(
     """Search repositories by name, description, or language, scoped to the current user."""
     search_term = f"%{q}%"
     query = select(Repo).where(
-        Repo.user_id == user.id,
+        Repo.workspace_id == user.workspace_id,
         or_(
             Repo.name.ilike(search_term),
             Repo.description.ilike(search_term),
@@ -72,7 +71,7 @@ async def get_repo(
 ):
     """Get a single repository by ID, verifying user ownership."""
     repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not repo or repo.user_id != user.id:
+    if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
 
@@ -91,6 +90,7 @@ async def create_repo(
         language=data.language,
         default_branch=data.default_branch,
         user_id=user.id,
+        workspace_id=user.workspace_id,
     )
     session.add(repo)
     await session.commit()
@@ -107,7 +107,7 @@ async def update_repo(
 ):
     """Update repository details, verifying user ownership."""
     old_repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not old_repo or old_repo.user_id != user.id:
+    if not old_repo or old_repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
     repo = await repo_service.update_repo(session, repo_id, data)
@@ -122,7 +122,7 @@ async def get_repo_blast_radius(
 ):
     """Calculate repository blast radius and risk score, verifying user ownership."""
     repo = await repo_service.get_repo_by_id(session, repo_id)
-    if not repo or repo.user_id != user.id:
+    if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     from app.services.impact_service import calculate_blast_radius
     return await calculate_blast_radius(session, repo_id)
@@ -146,7 +146,7 @@ async def get_repo_tree(
     # 1. Get Repo metadata and verify ownership
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
-    if not repo or repo.user_id != user.id:
+    if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
     if not user.github_access_token:
@@ -191,7 +191,7 @@ async def get_file_content(
     # 1. Get Repo metadata and verify ownership
     result = await session.execute(select(Repo).where(Repo.id == repo_id))
     repo = result.scalar_one_or_none()
-    if not repo or repo.user_id != user.id:
+    if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
     
     if not user.github_access_token:

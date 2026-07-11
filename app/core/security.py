@@ -62,7 +62,14 @@ async def get_current_user(
 
     # Serve from cache if available
     if uid in _user_cache:
-        return User(**_user_cache[uid])
+        user = User(**_user_cache[uid])
+        from sqlalchemy import text
+        if user.workspace_id:
+            await session.execute(
+                text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
+                {"workspace_id": user.workspace_id, "user_id": user.id}
+            )
+        return user
 
     # Sync with database
     try:
@@ -100,6 +107,12 @@ async def get_current_user(
                 await session.refresh(user)
 
         _user_cache[uid] = user.model_dump()
+        from sqlalchemy import text
+        if user.workspace_id:
+            await session.execute(
+                text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
+                {"workspace_id": user.workspace_id, "user_id": user.id}
+            )
         return user
 
     except Exception as e:

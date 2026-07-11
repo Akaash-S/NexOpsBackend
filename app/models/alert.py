@@ -19,6 +19,7 @@ class Alert(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     title: str = Field(max_length=255)
     message: str = Field(max_length=2000)
     severity: str = Field(

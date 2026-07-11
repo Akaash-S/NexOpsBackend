@@ -49,5 +49,10 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
         finally:
+            try:
+                from sqlalchemy import text
+                await session.execute(text("RESET ALL;"))
+            except Exception:
+                pass
             await session.close()
 

@@ -18,6 +18,7 @@ class CandidateCause(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     incident_id: str = Field(foreign_key="incidents.id", index=True)
     repo_id: str = Field(foreign_key="repos.id", index=True)
     event_id: Optional[str] = Field(default=None, foreign_key="events.id", nullable=True)

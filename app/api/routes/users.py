@@ -22,7 +22,7 @@ async def list_users(
     current_user: User = Depends(get_current_user)
 ):
     """List all users (scoped to current user)."""
-    result = await session.execute(select(User).where(User.id == current_user.id))
+    result = await session.execute(select(User).where(User.workspace_id == current_user.workspace_id))
     return list(result.scalars().all())
 
 

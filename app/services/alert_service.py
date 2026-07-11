@@ -16,10 +16,11 @@ from app.schemas.alert_schema import AlertCreate
 
 async def create_alert(session: AsyncSession, data: AlertCreate, user_id: Optional[str] = None) -> Alert:
     """Create a new alert record, optionally verifying repository ownership."""
-    if user_id:
-        repo = await session.get(Repo, data.repo_id)
-        if not repo or repo.user_id != user_id:
-            raise ValueError("Repository not found or access denied")
+    repo = await session.get(Repo, data.repo_id)
+    if not repo:
+        raise ValueError("Repository not found")
+    if user_id and repo.user_id != user_id:
+        raise ValueError("Repository not found or access denied")
 
     alert = Alert(
         title=data.title,
@@ -28,6 +29,7 @@ async def create_alert(session: AsyncSession, data: AlertCreate, user_id: Option
         category=data.category,  # Direct field, no alias needed
         repo_id=data.repo_id,
         event_id=data.event_id,
+        workspace_id=repo.workspace_id,
     )
     session.add(alert)
     await session.commit()
@@ -45,6 +47,9 @@ async def create_alert_from_rule(
     category: str = "system",
 ) -> Alert:
     """Create an alert directly from automation engine (no schema validation needed)."""
+    repo = await session.get(Repo, repo_id)
+    if not repo:
+        raise ValueError(f"Repository {repo_id} not found")
     alert = Alert(
         title=title,
         message=message,
@@ -52,6 +57,7 @@ async def create_alert_from_rule(
         category=category,
         repo_id=repo_id,
         event_id=event_id,
+        workspace_id=repo.workspace_id,
     )
     session.add(alert)
     await session.commit()
@@ -61,17 +67,17 @@ async def create_alert_from_rule(
 
 async def get_alerts(
     session: AsyncSession,
-    user_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
     repo_id: Optional[str] = None,
     severity: Optional[str] = None,
     resolved: Optional[bool] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> List[Alert]:
-    """Fetch alerts with filtering, optionally scoped to a user."""
+    """Fetch alerts with filtering, optionally scoped to a workspace."""
     query = select(Alert)
-    if user_id:
-        query = query.join(Repo, Alert.repo_id == Repo.id).where(Repo.user_id == user_id)
+    if workspace_id:
+        query = query.where(Alert.workspace_id == workspace_id)
     if repo_id:
         query = query.where(Alert.repo_id == repo_id)
     if severity:
@@ -83,11 +89,11 @@ async def get_alerts(
     return list(result.scalars().all())
 
 
-async def resolve_alert(session: AsyncSession, alert_id: str, user_id: Optional[str] = None) -> Optional[Alert]:
-    """Mark an alert as resolved, optionally scoped to a user's repositories."""
+async def resolve_alert(session: AsyncSession, alert_id: str, workspace_id: Optional[str] = None) -> Optional[Alert]:
+    """Mark an alert as resolved, optionally scoped to a workspace."""
     query = select(Alert).where(Alert.id == alert_id)
-    if user_id:
-        query = query.join(Repo, Alert.repo_id == Repo.id).where(Repo.user_id == user_id)
+    if workspace_id:
+        query = query.where(Alert.workspace_id == workspace_id)
     result = await session.execute(query)
     alert = result.scalar_one_or_none()
     if not alert:
@@ -100,11 +106,11 @@ async def resolve_alert(session: AsyncSession, alert_id: str, user_id: Optional[
     return alert
 
 
-async def acknowledge_alert(session: AsyncSession, alert_id: str, user_id: Optional[str] = None) -> Optional[Alert]:
-    """Acknowledge an alert without resolving it, optionally scoped to a user's repositories."""
+async def acknowledge_alert(session: AsyncSession, alert_id: str, workspace_id: Optional[str] = None) -> Optional[Alert]:
+    """Acknowledge an alert without resolving it, optionally scoped to a workspace."""
     query = select(Alert).where(Alert.id == alert_id)
-    if user_id:
-        query = query.join(Repo, Alert.repo_id == Repo.id).where(Repo.user_id == user_id)
+    if workspace_id:
+        query = query.where(Alert.workspace_id == workspace_id)
     result = await session.execute(query)
     alert = result.scalar_one_or_none()
     if not alert:
@@ -116,8 +122,8 @@ async def acknowledge_alert(session: AsyncSession, alert_id: str, user_id: Optio
     return alert
 
 
-async def get_alert_counts(session: AsyncSession, user_id: Optional[str] = None, repo_id: Optional[str] = None) -> dict:
-    """Get alert count breakdown by severity using a single optimized query, optionally scoped to a user."""
+async def get_alert_counts(session: AsyncSession, workspace_id: Optional[str] = None, repo_id: Optional[str] = None) -> dict:
+    """Get alert count breakdown by severity using a single optimized query, optionally scoped to a workspace."""
     from sqlalchemy import case
     
     query = select(
@@ -128,8 +134,8 @@ async def get_alert_counts(session: AsyncSession, user_id: Optional[str] = None,
         func.sum(case((Alert.severity == "low", 1), else_=0)).label("low"),
     ).where(Alert.resolved == False)
     
-    if user_id:
-        query = query.join(Repo, Alert.repo_id == Repo.id).where(Repo.user_id == user_id)
+    if workspace_id:
+        query = query.where(Alert.workspace_id == workspace_id)
     if repo_id:
         query = query.where(Alert.repo_id == repo_id)
     

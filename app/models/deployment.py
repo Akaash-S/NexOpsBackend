@@ -17,6 +17,7 @@ class Deployment(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     repo_id: str = Field(foreign_key="repos.id", index=True)
     
     environment: str = Field(default="staging", index=True)  # production | staging | preview

@@ -33,6 +33,7 @@ class User(SQLModel, table=True):
         default_factory=dict,
         sa_column=Column("preferences", JSON, nullable=True)
     )
+    workspace_id: Optional[str] = Field(default=None, foreign_key="workspaces.id", index=True)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -21,7 +21,7 @@ class Repo(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
-    workspace_id: Optional[str] = Field(default=None, index=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     user_id: Optional[str] = Field(default=None, index=True, foreign_key="users.id")
     cluster_id: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True, max_length=255)

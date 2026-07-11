@@ -19,6 +19,7 @@ class Dependency(SQLModel, table=True):
         primary_key=True,
         index=True,
     )
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
     # The repo that has the dependency
     source_repo_id: str = Field(foreign_key="repos.id", index=True)
     # The repo being depended on

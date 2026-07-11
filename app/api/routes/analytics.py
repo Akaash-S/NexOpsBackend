@@ -23,43 +23,29 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 async def _calculate_dashboard_stats(
     session: AsyncSession,
-    user_id: str,
-    workspace_id: Optional[str] = None
+    workspace_id: str
 ) -> DashboardStats:
-    """Calculate aggregated top-level metrics in a single database round-trip scoped to the user."""
-    # Define base filters for Repo subquery
-    repo_filter = [Repo.user_id == user_id]
-    if workspace_id:
-        repo_filter.append(Repo.workspace_id == workspace_id)
-        
-    avg_health_sub = select(func.avg(Repo.health_score)).where(*repo_filter).scalar_subquery()
+    """Calculate aggregated top-level metrics in a single database query scoped to the workspace."""
+    avg_health_sub = select(func.avg(Repo.health_score)).where(Repo.workspace_id == workspace_id).scalar_subquery()
     
-    alerts_sub = select(func.count(Alert.id)).join(
-        Repo, Alert.repo_id == Repo.id
-    ).where(
-        *repo_filter,
+    alerts_sub = select(func.count(Alert.id)).where(
+        Alert.workspace_id == workspace_id,
         Alert.resolved == False,
         Alert.severity.in_(["critical", "high"])
     ).scalar_subquery()
     
-    deployment_success_sub = select(func.count(Deployment.id)).join(
-        Repo, Deployment.repo_id == Repo.id
-    ).where(
-        *repo_filter,
+    deployment_success_sub = select(func.count(Deployment.id)).where(
+        Deployment.workspace_id == workspace_id,
         Deployment.status == "success"
     ).scalar_subquery()
     
-    deployment_total_sub = select(func.count(Deployment.id)).join(
-        Repo, Deployment.repo_id == Repo.id
-    ).where(
-        *repo_filter,
+    deployment_total_sub = select(func.count(Deployment.id)).where(
+        Deployment.workspace_id == workspace_id,
         Deployment.status.in_(["success", "failed"])
     ).scalar_subquery()
     
-    running_sub = select(func.count(Deployment.id)).join(
-        Repo, Deployment.repo_id == Repo.id
-    ).where(
-        *repo_filter,
+    running_sub = select(func.count(Deployment.id)).where(
+        Deployment.workspace_id == workspace_id,
         Deployment.status == "running"
     ).scalar_subquery()
 
@@ -99,7 +85,8 @@ async def get_dashboard_summary(
     Get all dashboard data in a single request, cached in Redis.
     Combines stats, repos, alerts, and clusters into one response.
     """
-    workspace_key = workspace_id if workspace_id else "all"
+    # Always scope to the user's real workspace_id
+    workspace_key = user.workspace_id
     cache_key = f"cache:dashboard:summary:{user.id}:{workspace_key}"
     
     cached = await get_cached_data(cache_key)
@@ -109,13 +96,13 @@ async def get_dashboard_summary(
     from app.services.repo_service import get_repos
     from app.services.alert_service import get_alerts
     
-    # Execute database queries scoped to the user
-    repos = await get_repos(session, user_id=user.id, workspace_id=workspace_id, limit=100)
-    alerts = await get_alerts(session, user_id=user.id, resolved=False, limit=50)
+    # Execute database queries scoped to the user's workspace
+    repos = await get_repos(session, workspace_id=user.workspace_id, limit=100)
+    alerts = await get_alerts(session, workspace_id=user.workspace_id, resolved=False, limit=50)
     clusters = [] # Clusters table and endpoints are out of scope / stripped.
     
-    # Calculate stats using consolidated database aggregates scoped to the user
-    stats = await _calculate_dashboard_stats(session, user_id=user.id, workspace_id=workspace_id)
+    # Calculate stats using consolidated database aggregates scoped to the workspace
+    stats = await _calculate_dashboard_stats(session, workspace_id=user.workspace_id)
     
     summary = DashboardSummary(
         stats=stats,
@@ -139,7 +126,7 @@ async def get_dashboard_stats(
     if cached:
         return DashboardStats(**cached)
 
-    stats = await _calculate_dashboard_stats(session, user_id=user.id)
+    stats = await _calculate_dashboard_stats(session, workspace_id=user.workspace_id)
     await set_cached_data(cache_key, stats.model_dump(), ttl=30)
     return stats
 
@@ -158,10 +145,10 @@ async def get_activity_data(
     now = datetime.utcnow()
     seven_days_ago = now - timedelta(days=6) # 7 days including today
 
-    # Fetch events from the last 7 days scoped to user-owned repositories
+    # Fetch events from the last 7 days scoped to workspace_id
     result = await session.execute(
-        select(Event).join(Repo, Event.repo_id == Repo.id).where(
-            Repo.user_id == user.id,
+        select(Event).where(
+            Event.workspace_id == user.workspace_id,
             Event.created_at >= seven_days_ago
         ).order_by(Event.created_at.asc())
     )
