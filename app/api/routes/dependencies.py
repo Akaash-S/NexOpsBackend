@@ -130,6 +130,9 @@ async def create_dependency(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Dependency already exists")
 
+    if not current_user.workspace_id:
+        raise HTTPException(status_code=400, detail="User lacks a valid workspace context")
+
     dep = Dependency(
         source_repo_id=data.source_repo_id,
         target_repo_id=data.target_repo_id,

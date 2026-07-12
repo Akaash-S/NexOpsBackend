@@ -20,6 +20,12 @@ class Dependency(SQLModel, table=True):
         index=True,
     )
     workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        ws_id = getattr(self, "workspace_id", None)
+        if not ws_id or not isinstance(ws_id, str) or not ws_id.strip():
+            raise ValueError("workspace_id cannot be None or empty")
     # The repo that has the dependency
     source_repo_id: str = Field(foreign_key="repos.id", index=True)
     # The repo being depended on

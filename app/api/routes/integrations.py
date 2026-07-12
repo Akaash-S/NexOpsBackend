@@ -213,7 +213,10 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                                     )
                                     existing_dep = existing_dep_result.scalars().first()
                                     if not existing_dep:
+                                        if not repo.workspace_id:
+                                            raise ValueError(f"Repository {repo.name} lacks a valid workspace_id")
                                         dep = Dependency(
+                                            workspace_id=repo.workspace_id,
                                             source_repo_id=repo.id,
                                             target_repo_id=target_repo.id,
                                             type=dep_type,
