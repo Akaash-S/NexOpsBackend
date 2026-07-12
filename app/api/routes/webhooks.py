@@ -290,15 +290,20 @@ async def github_webhook_handler(
         source="github",
         payload=payload,
         message=message,
-        severity=severity
+        severity=severity,
+        workspace_id=repo.workspace_id
     )
     session.add(new_event)
     await session.commit()  # type: ignore
     await session.refresh(new_event)  # type: ignore
 
-    # 5. Trigger Automation Engine in background
-    from app.api.routes.events import _run_automation
-    background_tasks.add_task(_run_automation, new_event.id)
+    # 5. Trigger Automation Engine (async via Redis Stream, fallback to background tasks if Redis down)
+    from app.services.queue_service import enqueue_event
+    enqueued = await enqueue_event(new_event.id, repo.workspace_id)
+    if not enqueued:
+        logger.warning(f"Redis queue unavailable. Falling back to background task for event {new_event.id}")
+        from app.api.routes.events import _run_automation
+        background_tasks.add_task(_run_automation, new_event.id)
 
     return JSONResponse(status_code=200, content={"status": "processed", "event_id": new_event.id, "type": event_type})
 
@@ -451,14 +456,20 @@ async def pagerduty_webhook_handler(
         pd_event_id=pd_event_id,
         pd_incident_id=pd_incident_id,
         message=f"PagerDuty incident: {title} (service: {pd_service_name})",
-        severity="error"
+        severity="error",
+        workspace_id=repo.workspace_id
     )
     session.add(new_event)
     await session.commit()  # type: ignore
     await session.refresh(new_event)  # type: ignore
 
-    from app.api.routes.events import _run_automation
-    background_tasks.add_task(_run_automation, new_event.id)
+    # Trigger Automation Engine (async via Redis Stream, fallback to background tasks if Redis down)
+    from app.services.queue_service import enqueue_event
+    enqueued = await enqueue_event(new_event.id, repo.workspace_id)
+    if not enqueued:
+        logger.warning(f"Redis queue unavailable. Falling back to background task for event {new_event.id}")
+        from app.api.routes.events import _run_automation
+        background_tasks.add_task(_run_automation, new_event.id)
 
     logger.info(f"PagerDuty incident.triggered processed: NexOps event {new_event.id} "
                 f"repo={repo.name} pd_event_id={pd_event_id} pd_incident_id={pd_incident_id!r}")

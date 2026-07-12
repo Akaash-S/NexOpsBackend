@@ -42,8 +42,13 @@ async def create_event(
     try:
         event = await event_service.create_event(session, data, user_id=user.id)
 
-        # Fire-and-forget: trigger automation engine in background
-        background_tasks.add_task(_run_automation, event.id)
+        # Trigger Automation Engine (async via Redis Stream, fallback to background tasks if Redis down)
+        from app.services.queue_service import enqueue_event
+        enqueued = await enqueue_event(event.id, event.workspace_id or user.workspace_id)
+        if not enqueued:
+            logger_api = logging.getLogger("nexops.api")
+            logger_api.warning(f"Redis queue unavailable. Falling back to background task for event {event.id}")
+            background_tasks.add_task(_run_automation, event.id)
 
         return EventResponse.model_validate(event)
     except ValueError as e:

@@ -58,10 +58,18 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database tables initialized")
 
+    # Start Redis WS broadcast listener background task
+    from app.core.websocket import start_ws_redis_listener
+    listener_task = asyncio.create_task(start_ws_redis_listener())
+
     yield
 
     # --- Shutdown ---
     logger.info("NexOps Engine shutting down...")
+    
+    # Cancel Redis WS broadcast listener
+    listener_task.cancel()
+    await asyncio.gather(listener_task, return_exceptions=True)
 
 
 # ── API docs: only available outside production ──────────────────────────

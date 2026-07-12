@@ -91,6 +91,37 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     event_type = event.type
     repo_id = event.repo_id
 
+    # Gather details for websocket broadcast before commit to avoid lazy loading issues
+    incident_data = None
+    candidate_causes_data = []
+    if actions_taken.get("incident_id"):
+        try:
+            from app.models.incident import Incident
+            from app.models.candidate_cause import CandidateCause
+            # Fetch incident
+            inc_res = await session.execute(
+                select(Incident).where(Incident.id == actions_taken["incident_id"])
+            )
+            db_inc = inc_res.scalars().first()
+            if db_inc:
+                incident_data = db_inc.model_dump()
+                for k, v in incident_data.items():
+                    if hasattr(v, "isoformat"):
+                        incident_data[k] = v.isoformat()
+
+                # Fetch candidate causes
+                cc_res = await session.execute(
+                    select(CandidateCause).where(CandidateCause.incident_id == db_inc.id)
+                )
+                for cc in cc_res.scalars().all():
+                    cc_dict = cc.model_dump()
+                    for k, v in cc_dict.items():
+                        if hasattr(v, "isoformat"):
+                            cc_dict[k] = v.isoformat()
+                    candidate_causes_data.append(cc_dict)
+        except Exception as serial_err:
+            logger.error(f"Failed to serialize incident/candidate causes: {serial_err}")
+
     # Mark event as processed
     event.processed = True
     session.add(event)
@@ -110,12 +141,14 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     from app.core.websocket import manager
     try:
         await manager.broadcast({
-            "type": "system.update",
+            "type": "incident.created" if incident_data else "system.update",
             "source": "intelligence_engine",
             "payload": {
                 "event_type": event_type,
                 "repo_id": repo_id,
-                "actions": actions_taken
+                "actions": actions_taken,
+                "incident": incident_data,
+                "candidate_causes": candidate_causes_data
             }
         })
     except Exception as e:

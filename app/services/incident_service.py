@@ -122,7 +122,8 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             event_id=cand["event"].id,
             score=cand["score"],
             reason=cand["reason"],
-            confirmed=None
+            confirmed=None,
+            workspace_id=incident.workspace_id
         )
         session.add(db_cand)
         
@@ -167,6 +168,9 @@ async def get_or_create_incident(
         return existing_incident
 
     # Create new incident
+    repo = await session.get(Repo, repo_id)
+    workspace_id = repo.workspace_id if repo else None
+    
     new_incident = Incident(
         title=title,
         severity=severity,
@@ -174,6 +178,7 @@ async def get_or_create_incident(
         root_cause_repo_id=repo_id,
         impacted_repos=impacted_repos,
         pd_incident_id=pd_incident_id,
+        workspace_id=workspace_id,
         started_at=datetime.utcnow()
     )
     session.add(new_incident)
