@@ -227,7 +227,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                                 else:
                                     logger.info(f"nexops.yaml: dependency '{dep_full_name}' declared but not yet tracked in NexOps — skipping edge creation")
                 except Exception as yaml_err:
-                    logger.error(f"Failed to parse nexops.yaml for {repo.name}: {yaml_err}")
+                    logger.warning(f"Failed to parse nexops.yaml for {repo.name}: {yaml_err}")
             await session.flush()  # type: ignore
         
         # Stamp the successful sync time on the user record
