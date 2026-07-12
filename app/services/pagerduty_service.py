@@ -21,20 +21,35 @@ class PagerDutyService:
         """
         Validate the PagerDuty API token by checking access to the services list.
         """
-        logger.info("Validating PagerDuty API token...")
+        token_len = len(token) if token else 0
+        token_prefix = token[:4] if token and len(token) >= 4 else ""
+        token_suffix = token[-4:] if token and len(token) >= 4 else ""
+        logger.info(
+            f"Validating PagerDuty API token (length: {token_len}, "
+            f"starts with: {token_prefix!r}, ends with: {token_suffix!r})"
+        )
         try:
             async with httpx.AsyncClient() as client:
+                headers = cls._get_headers(token)
+                log_headers = {k: (v if k != "Authorization" else "Token token=***") for k, v in headers.items()}
+                logger.info(f"PagerDuty API call headers: {log_headers}")
+                
                 response = await client.get(
                     f"{cls.BASE_URL}/services",
-                    headers=cls._get_headers(token),
+                    headers=headers,
                     params={"limit": 1},
                     timeout=10.0
                 )
                 logger.info(f"PagerDuty validation response status: {response.status_code}")
                 if response.status_code == 200:
+                    logger.info("PagerDuty token is valid.")
                     return True
                 else:
-                    logger.warning(f"PagerDuty token validation failed with status: {response.status_code}, response: {response.text}")
+                    logger.warning(
+                        f"PagerDuty token validation failed with status: {response.status_code}. "
+                        f"Response Headers: {dict(response.headers)}. "
+                        f"Response Body: {response.text!r}"
+                    )
                     return False
         except Exception as e:
             logger.error(f"Error during PagerDuty token validation: {e}")
