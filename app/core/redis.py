@@ -16,7 +16,8 @@ if settings.REDIS_URL:
             encoding="utf-8",
             decode_responses=True,
             socket_timeout=5.0,
-            socket_connect_timeout=5.0
+            socket_connect_timeout=5.0,
+            max_connections=3
         )
         logger.info("Redis client initialized.")
     except Exception as e:
