@@ -142,6 +142,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             # No synthetic deployments or fake activity events — real data only.
             if is_new:
                 sync_event = Event(
+                    workspace_id=repo.workspace_id,
                     repo_id=repo.id,
                     type="repo.synced",
                     source=request.provider,
