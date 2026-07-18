@@ -8,6 +8,8 @@ from app.models.dependency import Dependency
 from app.models.incident import Incident
 from app.models.deployment import Deployment
 from app.models.candidate_cause import CandidateCause
+from app.models.candidate_cause_feedback_log import CandidateCauseFeedbackLog
+from app.models.scoring_weight_recalibration import ScoringWeightRecalibration
 
 # Explicitly define exports
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "Incident",
     "Deployment",
     "CandidateCause",
+    "CandidateCauseFeedbackLog",
+    "ScoringWeightRecalibration",
 ]

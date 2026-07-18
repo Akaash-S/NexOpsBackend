@@ -143,13 +143,29 @@ async def submit_feedback(
     if not target_cause:
         raise HTTPException(status_code=404, detail="Candidate cause not found for this incident")
         
-    # 3. Update confirmation state
+    # 3. Update confirmation state (fast cache on CandidateCause)
     target_cause.confirmed = feedback.confirmed
     target_cause.confirmed_by = user.id
     target_cause.updated_at = datetime.utcnow()
     session.add(target_cause)
     
-    # If confirmed is True, reject all other causes for this incident
+    # Insert immutable ledger entry for this decision
+    from app.models.candidate_cause_feedback_log import CandidateCauseFeedbackLog
+    log_entry = CandidateCauseFeedbackLog(
+        workspace_id=incident.workspace_id or user.workspace_id,
+        candidate_cause_id=target_cause.id,
+        incident_id=incident.id,
+        repo_id=target_cause.repo_id,
+        event_id=target_cause.event_id,
+        confirmed=feedback.confirmed,
+        confirmed_by=user.id,
+        score_at_time=target_cause.score,
+        reasons_at_time=target_cause.reason or "",
+        created_at=datetime.utcnow()
+    )
+    session.add(log_entry)
+    
+    # If confirmed is True, reject all other causes for this incident and log ledger entries
     if feedback.confirmed is True:
         others_result = await session.execute(
             select(CandidateCause).where(
@@ -162,6 +178,20 @@ async def submit_feedback(
             other.confirmed_by = user.id
             other.updated_at = datetime.utcnow()
             session.add(other)
+
+            other_log = CandidateCauseFeedbackLog(
+                workspace_id=incident.workspace_id or user.workspace_id,
+                candidate_cause_id=other.id,
+                incident_id=incident.id,
+                repo_id=other.repo_id,
+                event_id=other.event_id,
+                confirmed=False,
+                confirmed_by=user.id,
+                score_at_time=other.score,
+                reasons_at_time=other.reason or "",
+                created_at=datetime.utcnow()
+            )
+            session.add(other_log)
             
         # Update incident root cause repo ID
         incident.root_cause_repo_id = target_cause.repo_id

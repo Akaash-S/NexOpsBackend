@@ -65,25 +65,66 @@ async def propagate_impact(session: AsyncSession, root_repo_id: str, severity: s
     await session.commit()
     logger.info(f"Impact propagation complete. Affected {len(visited) - 1} downstream repos.")
 
-async def get_downstream_repos(session: AsyncSession, repo_id: str) -> List[str]:
-    """Helper to find all downstream repos for insight generation."""
+async def get_downstream_repos(session: AsyncSession, repo_id: str, max_depth: int = 3) -> List[str]:
+    """Helper to find all downstream repos for insight generation up to max_depth hops."""
     visited = set()
-    to_visit = [repo_id]
+    to_visit = [(repo_id, 0)]
     
     while to_visit:
-        current_repo_id = to_visit.pop(0)
+        current_repo_id, depth = to_visit.pop(0)
         if current_repo_id in visited:
             continue
         visited.add(current_repo_id)
         
+        if depth >= max_depth:
+            continue
+            
         query = select(Dependency).where(Dependency.target_repo_id == current_repo_id)
         result = await session.execute(query)
         for dep in result.scalars().all():
             if dep.source_repo_id not in visited:
-                to_visit.append(dep.source_repo_id)
+                to_visit.append((dep.source_repo_id, depth + 1))
     
-    visited.remove(repo_id)
+    if repo_id in visited:
+        visited.remove(repo_id)
     return list(visited)
+
+
+async def get_upstream_dependencies(
+    session: AsyncSession,
+    root_repo_id: str,
+    max_depth: int = 3
+) -> dict:
+    """
+    Traverse upstream dependency graph starting from root_repo_id up to max_depth hops.
+    Returns dict mapping repo_id -> {"distance": int, "path": List[str]}.
+    Stores the shortest path for each reachable repository.
+    """
+    upstream_map = {}
+    queue = [(root_repo_id, 0, [root_repo_id])]
+
+    while queue:
+        curr_id, dist, path = queue.pop(0)
+        if dist >= max_depth:
+            continue
+
+        query = select(Dependency).where(Dependency.source_repo_id == curr_id)
+        res = await session.execute(query)
+        deps = res.scalars().all()
+
+        for dep in deps:
+            target_id = dep.target_repo_id
+            new_dist = dist + 1
+            new_path = path + [target_id]
+
+            if target_id not in upstream_map or new_dist < upstream_map[target_id]["distance"]:
+                upstream_map[target_id] = {
+                    "distance": new_dist,
+                    "path": new_path
+                }
+                queue.append((target_id, new_dist, new_path))
+
+    return upstream_map
 
 async def calculate_blast_radius(session: AsyncSession, repo_id: str) -> dict:
     """

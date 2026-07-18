@@ -29,13 +29,11 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
     if not repo_id:
         return
     
-    # 1. Get dependency repository IDs (alerting repo depends on these)
-    dep_query = select(Dependency).where(Dependency.source_repo_id == repo_id)
-    dep_result = await session.execute(dep_query)
-    dependencies = dep_result.scalars().all()
-    dep_repo_ids = {dep.target_repo_id for dep in dependencies}
+    # 1. Get upstream dependencies up to max_depth=3 using shared BFS traversal
+    from app.services.impact_service import get_upstream_dependencies, calculate_deployment_risk
+    upstream_map = await get_upstream_dependencies(session, repo_id, max_depth=3)
     
-    candidate_repo_ids = {repo_id} | dep_repo_ids
+    candidate_repo_ids = {repo_id} | set(upstream_map.keys())
     
     # 2. Query events in the 2-hour window before incident start
     two_hours_ago = incident.created_at - timedelta(hours=2)
@@ -47,6 +45,11 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
     event_result = await session.execute(event_query)
     events = event_result.scalars().all()
     
+    # Fetch active scoring weights for workspace (recalibrated or default constants)
+    from app.services.recalibration_service import get_current_scoring_weights
+    from app.models.candidate_cause_feedback_log import CandidateCauseFeedbackLog
+    weights = await get_current_scoring_weights(session, incident.workspace_id)
+
     # 3. For each event, calculate point score
     scored_candidates = []
     ninety_days_ago = incident.created_at - timedelta(days=90)
@@ -55,37 +58,68 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         score = 0.0
         reasons = []
         
-        # Repository association
+        # A2: Topological proximity (Same repo, 1 hop direct, 2 hops transitive, 3 hops transitive)
         if event.repo_id == repo_id:
-            score += 35.0
-            reasons.append("Same repository (+35)")
-        elif event.repo_id in dep_repo_ids:
-            score += 20.0
-            reasons.append("Dependency repository (+20)")
+            w = weights.get("same_repo", 35.0)
+            score += w
+            reasons.append(f"Same repository (+{w:.1f})")
+        elif event.repo_id in upstream_map:
+            info = upstream_map[event.repo_id]
+            dist = info["distance"]
+            path_str = " -> ".join(info["path"])
+            if dist == 1:
+                w = weights.get("dep_repo", 20.0)
+                score += w
+                reasons.append(f"Direct dependency (1 hop away via {path_str}) (+{w:.1f})")
+            elif dist == 2:
+                w = weights.get("transitive_2hop", 10.0)
+                score += w
+                reasons.append(f"Transitive dependency (2 hops away via {path_str}) (+{w:.1f})")
+            elif dist == 3:
+                w = weights.get("transitive_3hop", 5.0)
+                score += w
+                reasons.append(f"Transitive dependency (3 hops away via {path_str}) (+{w:.1f})")
             
         # Temporal proximity
         time_diff = (incident.created_at - event.created_at).total_seconds()
         if time_diff <= 900:  # 15 minutes
-            score += 25.0
-            reasons.append("Temporal proximity within 15 min (+25)")
+            w = weights.get("temp_15m", 25.0)
+            score += w
+            reasons.append(f"Temporal proximity within 15 min (+{w:.1f})")
         elif time_diff <= 3600:  # 60 minutes
-            score += 15.0
-            reasons.append("Temporal proximity within 15-60 min (+15)")
+            w = weights.get("temp_60m", 15.0)
+            score += w
+            reasons.append(f"Temporal proximity within 15-60 min (+{w:.1f})")
         elif time_diff <= 7200:  # 120 minutes
-            score += 5.0
-            reasons.append("Temporal proximity within 60-120 min (+5)")
+            w = weights.get("temp_120m", 5.0)
+            score += w
+            reasons.append(f"Temporal proximity within 60-120 min (+{w:.1f})")
             
-        # Past confirmed cause within 90 days on this repository
-        cc_query = select(CandidateCause).where(
-            CandidateCause.repo_id == event.repo_id,
-            CandidateCause.confirmed == True,
-            CandidateCause.created_at >= ninety_days_ago
+        # Past confirmed cause within 90 days on this repository (Queries append-only CandidateCauseFeedbackLog)
+        fb_query = select(CandidateCauseFeedbackLog).where(
+            CandidateCauseFeedbackLog.repo_id == event.repo_id,
+            CandidateCauseFeedbackLog.confirmed == True,
+            CandidateCauseFeedbackLog.created_at >= ninety_days_ago
         )
-        cc_result = await session.execute(cc_query)
-        confirmed_past = cc_result.scalars().all()
+        fb_result = await session.execute(fb_query)
+        confirmed_past = fb_result.scalars().all()
         if confirmed_past:
-            score += 15.0
-            reasons.append("Past confirmed cause within 90 days (+15)")
+            w = weights.get("past_precedent", 15.0)
+            score += w
+            reasons.append(f"Past confirmed cause within 90 days (+{w:.1f})")
+            
+        # A4: Deployment risk contribution (reuses calculate_deployment_risk from impact_service)
+        try:
+            deploy_risk_info = await calculate_deployment_risk(session, event.repo_id)
+            r_score = float(deploy_risk_info.get("risk_score", 0.0))
+            r_basis = str(deploy_risk_info.get("risk_basis", ""))
+            w_risk = weights.get("deploy_risk", 15.0)
+            risk_contrib = round((r_score / 100.0) * w_risk, 1)
+            if risk_contrib > 0:
+                score += risk_contrib
+                reasons.append(f"Deployment risk score {r_score:.1f}/100 ({r_basis}) (+{risk_contrib:.1f})")
+        except Exception as risk_err:
+            logger.error(f"Failed to calculate deploy risk for repo {event.repo_id}: {risk_err}")
             
         # Test score boost (for testing capping logic)
         if event.payload and "test_score_boost" in event.payload:

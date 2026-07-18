@@ -187,3 +187,17 @@ async def get_activity_data(
     response_data = ActivityResponse(data=ordered_points)
     await set_cached_data(cache_key, response_data.model_dump(), ttl=30)
     return response_data
+
+
+@router.post("/recalibrate")
+async def recalibrate_weights_endpoint(
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
+):
+    """
+    Trigger recalibration of scoring weights for the authenticated workspace.
+    Requires minimum sample size of feedback decisions; falls back to default weights if sample size is insufficient.
+    """
+    from app.services.recalibration_service import recalibrate_scoring_weights
+    result = await recalibrate_scoring_weights(session, user.workspace_id, trigger_type="manual")
+    return result
