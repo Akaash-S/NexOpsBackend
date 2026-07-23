@@ -171,10 +171,12 @@ async def websocket_endpoint(
 @limiter.exempt
 async def health_check():
     """Basic health check endpoint."""
+    import os
     return {
         "status": "operational",
         "service": settings.APP_NAME,
         "version": "1.0.0",
+        "commit_sha": os.getenv("RENDER_GIT_COMMIT", "0d502fa"),
     }
 
 
