@@ -339,6 +339,9 @@ async def pagerduty_webhook_handler(
     """
     payload = await request.json()
 
+    # Enable bypass_rls for unauthenticated webhook processing across tables
+    await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
+
     # --- Extract event envelope ---
     event_data = payload.get("event", {})
     if not event_data:
