@@ -431,10 +431,18 @@ async def pagerduty_webhook_handler(
     # Fix B — repo matching: use service.summary; no unscoped fallback
     repo = None
     if pd_service_name:
+        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
         result = await session.execute(  # type: ignore
             select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
         )
         repo = result.scalars().first()
+        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
+
+    if repo:
+        await session.execute(
+            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.bypass_rls', 'false', false)"),
+            {"workspace_id": repo.workspace_id}
+        )
 
     if not repo:
         # Do NOT fall back to arbitrary first repo. Reject loudly.
