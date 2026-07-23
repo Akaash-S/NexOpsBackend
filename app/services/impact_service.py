@@ -81,9 +81,16 @@ async def get_downstream_repos(session: AsyncSession, repo_id: str, max_depth: i
             
         query = select(Dependency).where(Dependency.target_repo_id == current_repo_id)
         result = await session.execute(query)
-        for dep in result.scalars().all():
-            if dep.source_repo_id not in visited:
-                to_visit.append((dep.source_repo_id, depth + 1))
+        deps = result.scalars().all()
+        
+        if deps:
+            raw_source_ids = [dep.source_repo_id for dep in deps]
+            valid_res = await session.execute(select(Repo.id).where(Repo.id.in_(raw_source_ids)))
+            valid_source_ids = set(valid_res.scalars().all())
+
+            for dep in deps:
+                if dep.source_repo_id in valid_source_ids and dep.source_repo_id not in visited:
+                    to_visit.append((dep.source_repo_id, depth + 1))
     
     if repo_id in visited:
         visited.remove(repo_id)
@@ -99,6 +106,7 @@ async def get_upstream_dependencies(
     Traverse upstream dependency graph starting from root_repo_id up to max_depth hops.
     Returns dict mapping repo_id -> {"distance": int, "path": List[str]}.
     Stores the shortest path for each reachable repository.
+    Strictly validates target repo existence under active tenant RLS context.
     """
     upstream_map = {}
     queue = [(root_repo_id, 0, [root_repo_id])]
@@ -112,8 +120,18 @@ async def get_upstream_dependencies(
         res = await session.execute(query)
         deps = res.scalars().all()
 
+        if not deps:
+            continue
+
+        raw_target_ids = [dep.target_repo_id for dep in deps]
+        valid_res = await session.execute(select(Repo.id).where(Repo.id.in_(raw_target_ids)))
+        valid_target_ids = set(valid_res.scalars().all())
+
         for dep in deps:
             target_id = dep.target_repo_id
+            if target_id not in valid_target_ids:
+                continue
+
             new_dist = dist + 1
             new_path = path + [target_id]
 

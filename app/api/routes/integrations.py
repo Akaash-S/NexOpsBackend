@@ -75,6 +75,10 @@ class SyncRequest(BaseModel):
 
 async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession):
     try:
+        # Verify workspace ownership first before any token processing or external API calls
+        if not user.workspace_id or request.workspace_id != user.workspace_id:
+            raise HTTPException(status_code=403, detail="Workspace access denied: user cannot sync to a mismatched workspace")
+
         token = request.token
         if (not token or token == "use_stored_token") and request.provider == "github":
             if user.github_access_token:
@@ -240,6 +244,9 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         await session.commit()  # type: ignore
         return {"status": "success", "synced": len(new_repos)}
         
+    except HTTPException:
+        await session.rollback()  # type: ignore
+        raise
     except Exception as e:
         await session.rollback()  # type: ignore
         raise HTTPException(status_code=400, detail=str(e))

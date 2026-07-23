@@ -35,6 +35,7 @@ async def init_redis() -> None:
         return
     try:
         await asyncio.wait_for(redis_client.ping(), timeout=5.0)
+        _use_in_memory = False
         logger.info("Redis connection verified successfully.")
     except Exception as e:
         logger.warning(f"Redis ping failed at startup ({e}). Switching to in-memory fallback cache.")

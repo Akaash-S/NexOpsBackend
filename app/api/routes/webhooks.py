@@ -262,6 +262,7 @@ async def github_webhook_handler(
             logger.info(f"Updated deployment {db_deployment.id} for repo {repo.name} to status {status}")
         else:
             db_deployment = Deployment(
+                workspace_id=repo.workspace_id,
                 repo_id=repo.id,
                 commit_hash=commit_hash,
                 environment=environment,

@@ -116,6 +116,11 @@ async def create_dependency(
     source_repo = await session.get(Repo, data.source_repo_id)
     if not source_repo or source_repo.workspace_id != current_user.workspace_id:
         raise HTTPException(status_code=403, detail="Source repository access denied")
+
+    target_repo = await session.get(Repo, data.target_repo_id)
+    if not target_repo or target_repo.workspace_id != current_user.workspace_id:
+        raise HTTPException(status_code=403, detail="Target repository access denied")
+
     # Prevent self-loops
     if data.source_repo_id == data.target_repo_id:
         raise HTTPException(status_code=400, detail="A repo cannot depend on itself")
