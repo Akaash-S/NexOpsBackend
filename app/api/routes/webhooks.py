@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Header, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlmodel import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 import hmac
 import hashlib
