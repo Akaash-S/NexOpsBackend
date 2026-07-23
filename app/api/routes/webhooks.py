@@ -432,14 +432,26 @@ async def pagerduty_webhook_handler(
         logger.info(f"PagerDuty event type {event_type!r} is not incident.triggered — ignoring.")
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"event_type {event_type!r} not processed"})
 
-    # Fix B — repo matching: use service.summary; no unscoped fallback
+    # Fix B — repo matching: use service.summary; prioritize user's workspace if uid present
     repo = None
     if pd_service_name:
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
-        result = await session.execute(  # type: ignore
-            select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
-        )
-        repo = result.scalars().first()
+        uid = request.query_params.get("uid")
+        if uid:
+            from app.models.user import User
+            res_user = await session.execute(select(User).where(User.id == uid))
+            usr_obj = res_user.scalars().first()
+            if usr_obj:
+                res_repo = await session.execute(
+                    select(Repo).where(Repo.workspace_id == usr_obj.workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
+                )
+                repo = res_repo.scalars().first()
+
+        if not repo:
+            result = await session.execute(  # type: ignore
+                select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
+            )
+            repo = result.scalars().first()
 
     if not repo:
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
