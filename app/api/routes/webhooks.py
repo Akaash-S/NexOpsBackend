@@ -337,10 +337,11 @@ async def pagerduty_webhook_handler(
         a new Event or Incident row.
       - Other event types → ignored with a clear log entry.
     """
-    payload = await request.json()
+    try:
+        payload = await request.json()
 
-    # Enable bypass_rls for unauthenticated webhook processing across tables
-    await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
+        # Enable bypass_rls for unauthenticated webhook processing across tables
+        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
 
     # --- Extract event envelope ---
     event_data = payload.get("event", {})
@@ -486,3 +487,7 @@ async def pagerduty_webhook_handler(
         "pd_event_id": pd_event_id,
         "pd_incident_id": pd_incident_id
     })
+    except Exception as exc:
+        import traceback
+        logger.error(f"PagerDuty webhook error: {exc}\n{traceback.format_exc()}")
+        return JSONResponse(status_code=500, content={"error": str(exc), "traceback": traceback.format_exc()})
