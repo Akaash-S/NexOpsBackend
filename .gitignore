@@ -20,3 +20,4 @@ alembic.ini
 pytest.ini
 alembic/*
 backups/*
+truncate_db.py
