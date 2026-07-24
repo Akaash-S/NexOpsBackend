@@ -17,6 +17,8 @@ if settings.REDIS_URL:
             decode_responses=True,
             socket_timeout=5.0,
             socket_connect_timeout=5.0,
+            health_check_interval=30,
+            socket_keepalive=True,
             max_connections=3
         )
         logger.info("Redis client initialized.")
