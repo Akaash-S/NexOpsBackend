@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.services.insight_service import get_repo_insights, calculate_health_score
+from app.core.security import get_current_user
 from app.schemas.insight_schema import InsightResponse
 
 router = APIRouter(prefix="/insights", tags=["Insights"])
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/insights", tags=["Insights"])
 async def repo_insights(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
 ):
     """
     Get comprehensive intelligence insights for a repository.
@@ -36,6 +38,7 @@ async def repo_insights(
 async def recalculate_health(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user)
 ):
     """Manually trigger a health score recalculation."""
     score = await calculate_health_score(session, repo_id)
