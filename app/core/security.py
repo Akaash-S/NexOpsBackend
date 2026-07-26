@@ -41,12 +41,13 @@ async def get_current_user(
     Verify Firebase ID token and ensure the user exists in the SQL database.
     Any token failure raises 401 — there are no dev-mode bypasses.
     """
-    # Verify the Firebase ID token — unconditionally, in all environments.
+    # Verify the Firebase ID token — mock tokens are strictly forbidden in production.
     try:
-        if credentials.credentials == "mock-live-closure":
+        is_dev_env = settings.APP_ENV in ("development", "test", "local") and settings.APP_ENV != "production"
+        if is_dev_env and credentials.credentials == "mock-live-closure":
             decoded_token = {"uid": "usr-live-closure", "email": "live-closure-admin@nexops.dev", "name": "Live Closure Admin"}
             uid = "usr-live-closure"
-        elif credentials.credentials in ("mock-auth-token", "test-token"):
+        elif is_dev_env and credentials.credentials in ("mock-auth-token", "test-token"):
             decoded_token = {"uid": "usr-e2e-smoke", "email": "e2etester@nexops.io", "name": "E2E Smoke Tester"}
             uid = "usr-e2e-smoke"
         else:
