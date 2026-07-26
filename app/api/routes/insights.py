@@ -18,16 +18,24 @@ from app.schemas.insight_schema import InsightResponse
 router = APIRouter(prefix="/insights", tags=["Insights"])
 
 
+from app.models.repo import Repo
+from app.models.user import User
+
 @router.get("/{repo_id}", response_model=InsightResponse)
 async def repo_insights(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
     """
     Get comprehensive intelligence insights for a repository.
     Powers the frontend's "Intelligence Insights" slide-out panel.
+    Strictly scoped to user's workspace_id to prevent cross-tenant data leaks.
     """
+    repo = await session.get(Repo, repo_id)
+    if not repo or repo.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
     insights = await get_repo_insights(session, repo_id)
     if not insights:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -38,9 +46,16 @@ async def repo_insights(
 async def recalculate_health(
     repo_id: str,
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
-    """Manually trigger a health score recalculation."""
+    """
+    Manually trigger a health score recalculation.
+    Strictly scoped to user's workspace_id to prevent cross-tenant unauthorized modifications.
+    """
+    repo = await session.get(Repo, repo_id)
+    if not repo or repo.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
     score = await calculate_health_score(session, repo_id)
     if score is None:
         raise HTTPException(status_code=404, detail="Repository not found")
