@@ -74,13 +74,16 @@ import httpx
 async def get_workspace_ai_summary(
     workspace_id: str,
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
     """
     Generate an AI-powered summary of the workspace health and active threats.
     Queries repository count, average health score, active alerts, and running deployments.
     Sends this state to Gemini and returns a concise, actionable summary.
+    Strictly scoped to user's workspace_id to prevent cross-tenant data leaks.
     """
+    if workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     # 1. Gather real metrics for the workspace
     # Count repos in workspace
     repo_count_result = await session.execute(
@@ -179,12 +182,15 @@ async def query_workspace_ai(
     workspace_id: str,
     payload: AIQueryRequest,
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user: User = Depends(get_current_user)
 ):
     """
     Interact with the conversational DevOps Co-Pilot.
     Gathers workspace context (repos, alerts, deployments, incidents) and queries Gemini.
+    Strictly scoped to user's workspace_id to prevent cross-tenant data leaks.
     """
+    if workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Workspace not found")
     # 1. Gather context
     # Get repos in workspace
     repos_result = await session.execute(
@@ -306,11 +312,20 @@ class CodeAuditRequest(SQLModel):
     mode: str
 
 @router.post("/code-audit")
-async def code_audit(payload: CodeAuditRequest):
+async def code_audit(
+    payload: CodeAuditRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user)
+):
     """
     Audit, explain, or generate tests for the provided code content.
     Queries Gemini if configured, otherwise falls back to a smart local analyzer.
+    Strictly verifies repository ownership against user's workspace_id.
     """
+    repo = await session.get(Repo, payload.repo_id)
+    if not repo or repo.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
     code = payload.code
     path = payload.path
     mode = payload.mode
