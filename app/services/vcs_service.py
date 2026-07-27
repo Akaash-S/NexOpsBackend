@@ -157,6 +157,80 @@ class VCService:
             logger.warning(f"CI status check failed for {owner}/{repo}: {e}")
             return "unknown"
 
+    @staticmethod
+    async def fetch_github_deployments(token: str, owner: str, repo: str) -> List[Dict[str, Any]]:
+        """
+        Fetch recent deployments for a repository via GitHub Deployments API.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/deployments"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "NexOps-Intelligence-Engine"
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, params={"per_page": 10})
+                if response.status_code == 404:
+                    return []
+                response.raise_for_status()
+                deployments = response.json()
+                
+                results = []
+                for dep in deployments:
+                    dep_id = dep.get("id")
+                    statuses_url = f"https://api.github.com/repos/{owner}/{repo}/deployments/{dep_id}/statuses"
+                    st_resp = await client.get(statuses_url, headers=headers, params={"per_page": 1})
+                    status_data = st_resp.json()[0] if st_resp.status_code == 200 and st_resp.json() else {}
+                    results.append({
+                        "id": str(dep_id),
+                        "sha": dep.get("sha", ""),
+                        "environment": dep.get("environment", "production"),
+                        "creator": dep.get("creator", {}).get("login", "unknown"),
+                        "description": dep.get("description") or status_data.get("description") or f"Deployment of {dep.get('sha', '')[:7] if dep.get('sha') else ''}",
+                        "state": status_data.get("state", "success"),
+                        "created_at": dep.get("created_at")
+                    })
+                return results
+        except Exception as e:
+            logger.warning(f"Failed to fetch GitHub deployments for {owner}/{repo}: {e}")
+            return []
+
+    @staticmethod
+    async def register_github_webhook(token: str, owner: str, repo: str, webhook_url: str, secret: str = "") -> bool:
+        """
+        Automatically register a repository webhook on GitHub for deployment_status, push, pull_request events.
+        """
+        url = f"https://api.github.com/repos/{owner}/{repo}/hooks"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "NexOps-Intelligence-Engine"
+        }
+        payload = {
+            "name": "web",
+            "active": True,
+            "events": ["deployment_status", "push", "pull_request", "issues"],
+            "config": {
+                "url": webhook_url,
+                "content_type": "json",
+                "secret": secret,
+                "insecure_ssl": "0"
+            }
+        }
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json=payload)
+                if response.status_code in (200, 201, 422):
+                    logger.info(f"GitHub webhook registered/verified for {owner}/{repo}")
+                    return True
+                else:
+                    logger.warning(f"Failed to register GitHub webhook for {owner}/{repo}: HTTP {response.status_code}")
+                    return False
+        except Exception as e:
+            logger.warning(f"Error registering GitHub webhook for {owner}/{repo}: {e}")
+            return False
+
     @classmethod
     async def sync_repositories(cls, provider: str, token: str, workspace_id: str) -> List[Repo]:
         raw_repos = []

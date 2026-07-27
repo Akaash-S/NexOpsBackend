@@ -233,7 +233,68 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 except Exception as yaml_err:
                     logger.warning(f"Failed to parse nexops.yaml for {repo.name}: {yaml_err}")
             await session.flush()  # type: ignore
-        
+
+        # 5. Fetch historical deployments & register webhooks for GitHub repos
+        if request.provider == "github":
+            from app.models.deployment import Deployment
+            from app.services.impact_service import calculate_deployment_risk
+            
+            # Base backend URL for webhook endpoint
+            webhook_endpoint = "https://nexopsbackend.onrender.com/api/v1/webhooks/github"
+            
+            for repo in synced_repos:
+                owner = repo.owner or "unknown"
+                # Register webhook on GitHub repository
+                await vcs_service.register_github_webhook(
+                    token=token,
+                    owner=owner,
+                    repo=repo.name,
+                    webhook_url=webhook_endpoint,
+                    secret=settings.GITHUB_WEBHOOK_SECRET or ""
+                )
+                
+                # Fetch recent deployments
+                recent_deps = await vcs_service.fetch_github_deployments(
+                    token=token,
+                    owner=owner,
+                    repo=repo.name
+                )
+                for dep_item in recent_deps:
+                    commit_hash = dep_item.get("sha", "")
+                    env = dep_item.get("environment", "production")
+                    st = dep_item.get("state", "success")
+                    
+                    risk_calc = await calculate_deployment_risk(session, repo.id)
+                    
+                    dep_query = select(Deployment).where(
+                        Deployment.repo_id == repo.id,
+                        Deployment.commit_hash == commit_hash,
+                        Deployment.environment == env
+                    )
+                    dep_res = await session.execute(dep_query)
+                    existing_dep = dep_res.scalars().first()
+                    
+                    now = datetime.utcnow()
+                    if not existing_dep:
+                        new_dep = Deployment(
+                            workspace_id=repo.workspace_id,
+                            repo_id=repo.id,
+                            commit_hash=commit_hash,
+                            environment=env,
+                            status=st if st != "success" else "success",
+                            deployed_by=dep_item.get("creator", "unknown"),
+                            changelog=dep_item.get("description", f"Deployment of commit {commit_hash[:7] if commit_hash else ''}"),
+                            risk_score=risk_calc.get("risk_score", 0.0),
+                            risk_basis=risk_calc.get("risk_basis", ""),
+                            deployed_at=now,
+                            finished_at=now,
+                            created_at=now,
+                            updated_at=now
+                        )
+                        session.add(new_dep)
+                        logger.info(f"Populated deployment during sync for {repo.name}: {commit_hash[:7]}")
+            await session.flush()  # type: ignore
+
         # Stamp the successful sync time on the user record
         db_user = await session.get(User, user.id)
         if db_user:
