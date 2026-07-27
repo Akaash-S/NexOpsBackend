@@ -274,7 +274,14 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     dep_res = await session.execute(dep_query)
                     existing_dep = dep_res.scalars().first()
                     
-                    now = datetime.utcnow()
+                    gh_created_at = dep_item.get("created_at")
+                    dep_timestamp = now
+                    if gh_created_at:
+                        try:
+                            dep_timestamp = datetime.fromisoformat(gh_created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+                        except Exception:
+                            dep_timestamp = now
+
                     if not existing_dep:
                         new_dep = Deployment(
                             workspace_id=repo.workspace_id,
@@ -286,13 +293,13 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                             changelog=dep_item.get("description", f"Deployment of commit {commit_hash[:7] if commit_hash else ''}"),
                             risk_score=risk_calc.get("risk_score", 0.0),
                             risk_basis=risk_calc.get("risk_basis", ""),
-                            deployed_at=now,
-                            finished_at=now,
+                            deployed_at=dep_timestamp,
+                            finished_at=dep_timestamp,
                             created_at=now,
                             updated_at=now
                         )
                         session.add(new_dep)
-                        logger.info(f"Populated deployment during sync for {repo.name}: {commit_hash[:7]}")
+                        logger.info(f"Populated deployment during sync for {repo.name}: {commit_hash[:7]} (dated {dep_timestamp})")
             await session.flush()  # type: ignore
 
         # Stamp the successful sync time on the user record
