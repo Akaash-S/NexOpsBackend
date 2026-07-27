@@ -274,6 +274,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     dep_res = await session.execute(dep_query)
                     existing_dep = dep_res.scalars().first()
                     
+                    now = datetime.utcnow()
                     gh_created_at = dep_item.get("created_at")
                     dep_timestamp = now
                     if gh_created_at:
