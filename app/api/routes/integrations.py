@@ -283,7 +283,13 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                         except Exception:
                             dep_timestamp = now
 
-                    if not existing_dep:
+                    if existing_dep:
+                        existing_dep.deployed_at = dep_timestamp
+                        existing_dep.finished_at = dep_timestamp
+                        existing_dep.updated_at = now
+                        session.add(existing_dep)
+                        logger.info(f"Updated existing deployment timestamp for {repo.name}: {commit_hash[:7]} (dated {dep_timestamp})")
+                    else:
                         new_dep = Deployment(
                             workspace_id=repo.workspace_id,
                             repo_id=repo.id,
@@ -300,7 +306,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                             updated_at=now
                         )
                         session.add(new_dep)
-                        logger.info(f"Populated deployment during sync for {repo.name}: {commit_hash[:7]} (dated {dep_timestamp})")
+                        logger.info(f"Populated new deployment during sync for {repo.name}: {commit_hash[:7]} (dated {dep_timestamp})")
             await session.flush()  # type: ignore
 
         # Stamp the successful sync time on the user record
