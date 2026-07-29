@@ -166,16 +166,140 @@ async def websocket_endpoint(
         manager.disconnect(websocket)
 
 
+from datetime import datetime
+START_TIME = datetime.utcnow()
+
 @app.get("/health", tags=["System"])
 @limiter.exempt
 async def health_check():
-    """Basic health check endpoint."""
+    """Expanded diagnostic health check endpoint with live component checks."""
     import os
+    import time
+    from datetime import datetime
+    import httpx
+    from sqlalchemy import text
+    from app.core.database import async_session
+    from app.core.redis import redis_client
+
+    now = datetime.utcnow()
+    uptime_seconds = round((now - START_TIME).total_seconds(), 2)
+
+    # 1. Database check
+    db_connected = False
+    db_latency_ms = 0.0
+    db_branch = "unknown"
+    try:
+        db_url_str = settings.DATABASE_URL or ""
+        if "@" in db_url_str:
+            host_part = db_url_str.split("@")[1].split("/")[0]
+            db_branch = host_part.split(".")[0]
+        elif "://" in db_url_str:
+            db_branch = db_url_str.split("://")[1].split("/")[0]
+
+        t0 = time.perf_counter()
+        async with async_session() as session:
+            res = await session.execute(text("SELECT 1"))
+            res.scalar()
+        t1 = time.perf_counter()
+        db_connected = True
+        db_latency_ms = round((t1 - t0) * 1000, 2)
+    except Exception as e:
+        logger.warning(f"Health check DB error: {e}")
+
+    # 2. Redis & Worker check
+    redis_connected = False
+    redis_latency_ms = 0.0
+    queue_depth = 0
+    worker_last_heartbeat = None
+    try:
+        from app.core.redis import redis_client
+        if redis_client:
+            t0 = time.perf_counter()
+            pong = await redis_client.ping()
+            t1 = time.perf_counter()
+            if pong:
+                redis_connected = True
+                redis_latency_ms = round((t1 - t0) * 1000, 2)
+                
+                try:
+                    queue_depth = await redis_client.xlen("nexops:events:stream")
+                except Exception:
+                    queue_depth = 0
+
+                try:
+                    hb = await redis_client.get("nexops:worker:heartbeat")
+                    if hb:
+                        worker_last_heartbeat = hb.decode() if isinstance(hb, bytes) else str(hb)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"Health check Redis error: {e}")
+
+    # 3. Integrations reachability check
+    gh_reachable = False
+    gh_latency_ms = 0.0
+    pd_reachable = False
+    pd_latency_ms = 0.0
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            try:
+                t0 = time.perf_counter()
+                gh_res = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"})
+                t1 = time.perf_counter()
+                if gh_res.status_code == 200:
+                    gh_reachable = True
+                    gh_latency_ms = round((t1 - t0) * 1000, 2)
+            except Exception as e:
+                logger.warning(f"Health check GitHub API error: {e}")
+
+            try:
+                t0 = time.perf_counter()
+                pd_res = await client.get("https://status.pagerduty.com/api/v2/summary.json")
+                t1 = time.perf_counter()
+                if pd_res.status_code == 200:
+                    pd_reachable = True
+                    pd_latency_ms = round((t1 - t0) * 1000, 2)
+            except Exception as e:
+                logger.warning(f"Health check PagerDuty API error: {e}")
+    except Exception as e:
+        logger.warning(f"Health check HTTP client error: {e}")
+
+    commit_sha = os.getenv("RENDER_GIT_COMMIT", "d98186b")
+    deployed_at = os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z")
+
+    overall_status = "operational" if (db_connected and redis_connected) else "degraded"
+
     return {
-        "status": "operational",
+        "status": overall_status,
         "service": settings.APP_NAME,
         "version": "1.0.0",
-        "commit_sha": os.getenv("RENDER_GIT_COMMIT", "0d502fa"),
+        "commit_sha": commit_sha,
+        "deployed_at": deployed_at,
+        "uptime_seconds": uptime_seconds,
+        "database": {
+            "connected": db_connected,
+            "branch": db_branch,
+            "latency_ms": db_latency_ms
+        },
+        "redis": {
+            "connected": redis_connected,
+            "latency_ms": redis_latency_ms
+        },
+        "worker": {
+            "last_heartbeat_at": worker_last_heartbeat,
+            "queue_depth": queue_depth
+        },
+        "integrations": {
+            "github": {
+                "reachable": gh_reachable,
+                "latency_ms": gh_latency_ms
+            },
+            "pagerduty": {
+                "reachable": pd_reachable,
+                "latency_ms": pd_latency_ms
+            }
+        }
     }
 
 
