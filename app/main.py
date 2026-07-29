@@ -247,7 +247,7 @@ async def health_check():
                 t0 = time.perf_counter()
                 gh_res = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"})
                 t1 = time.perf_counter()
-                if gh_res.status_code == 200:
+                if gh_res.status_code in (200, 403):  # 200 or 403 Rate Limited (proves connectivity)
                     gh_reachable = True
                     gh_latency_ms = round((t1 - t0) * 1000, 2)
             except Exception as e:
