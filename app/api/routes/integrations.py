@@ -142,8 +142,6 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             await session.flush()  # type: ignore
             synced_repos.append(repo)
 
-            # Record a real sync event for newly-tracked repos only.
-            # No synthetic deployments or fake activity events — real data only.
             if is_new:
                 sync_event = Event(
                     workspace_id=repo.workspace_id,
@@ -155,18 +153,41 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     created_at=datetime.utcnow()
                 )
                 session.add(sync_event)
-        
+
+        # 1.8 Detect and prune deleted repositories (repos in DB but no longer returned by GitHub)
+        active_repo_names = {r.name for r in new_repos}
+        existing_db_repos_res = await session.execute(
+            select(Repo).where(
+                Repo.user_id == user.id,
+                Repo.platform == request.provider
+            )
+        )
+        existing_db_repos = existing_db_repos_res.scalars().all()
+        for db_repo in existing_db_repos:
+            if db_repo.name not in active_repo_names:
+                logger.info(f"Pruning deleted/unlinked repository from NexOps: {db_repo.name} (id: {db_repo.id})")
+                await session.execute(text("DELETE FROM candidate_causes WHERE repo_id = :r_id"), {"r_id": db_repo.id})
+                await session.execute(text("DELETE FROM deployments WHERE repo_id = :r_id"), {"r_id": db_repo.id})
+                await session.execute(text("DELETE FROM repo_metrics WHERE repo_id = :r_id"), {"r_id": db_repo.id})
+                await session.execute(text("DELETE FROM dependencies WHERE source_repo_id = :r_id OR target_repo_id = :r_id"), {"r_id": db_repo.id})
+                await session.execute(text("DELETE FROM events WHERE repo_id = :r_id"), {"r_id": db_repo.id})
+                await session.delete(db_repo)
+        await session.flush()  # type: ignore
+
         # 3. Fetch real CI status for all GitHub repos
         if request.provider == "github":
             for repo in synced_repos:
-                ci_status = await vcs_service.fetch_github_ci_status(
-                    token=token,
-                    owner=repo.owner or "unknown",
-                    repo=repo.name
-                )
-                repo.ci_status = ci_status
-                session.add(repo)
-                logger.info(f"CI status for {repo.owner}/{repo.name}: {ci_status}")
+                try:
+                    ci_status = await vcs_service.fetch_github_ci_status(
+                        token=token,
+                        owner=repo.owner or "unknown",
+                        repo=repo.name
+                    )
+                    repo.ci_status = ci_status
+                    session.add(repo)
+                    logger.info(f"CI status for {repo.owner}/{repo.name}: {ci_status}")
+                except Exception as ci_err:
+                    logger.warning(f"Failed to fetch CI status for {repo.name}: {ci_err}")
             await session.flush()  # type: ignore
         
         # 4. Parse nexops.yaml for all repositories to build real Dependency rows

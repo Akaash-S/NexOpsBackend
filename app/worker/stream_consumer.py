@@ -134,6 +134,40 @@ async def handle_message(msg_id: str, fields: dict):
             except Exception as rq_err:
                 logger.critical(f"Failed to re-queue event {event_id}: {rq_err}")
 
+async def github_auto_sync_loop():
+    """Periodic background task that automatically syncs GitHub repositories, deployments, and prunes deleted repos across active connected workspaces."""
+    logger.info("Starting GitHub background auto-sync loop (running every 60s)...")
+    await asyncio.sleep(10)  # Initial startup delay
+    while True:
+        try:
+            async with async_session() as session:
+                from app.models.user import User
+                from app.api.routes.integrations import _perform_sync, SyncRequest
+                
+                # Fetch users with connected GitHub tokens
+                result = await session.execute(
+                    select(User).where(User.github_access_token.isnot(None), User.workspace_id.isnot(None))
+                )
+                users = result.scalars().all()
+
+                for user in users:
+                    try:
+                        # Scope DB session context
+                        await session.execute(
+                            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
+                            {"workspace_id": user.workspace_id, "user_id": user.id}
+                        )
+                        
+                        req = SyncRequest(provider="github", token="use_stored_token", workspaceId=user.workspace_id)
+                        await _perform_sync(req, user, session)
+                        logger.info(f"Background GitHub auto-sync completed for user {user.id} (workspace {user.workspace_id})")
+                    except Exception as sync_err:
+                        logger.warning(f"Background auto-sync failed for user {user.id}: {sync_err}")
+        except Exception as e:
+            logger.error(f"Error in GitHub background auto-sync loop: {e}")
+        
+        await asyncio.sleep(60)
+
 async def run_consumer():
     """Main consumer loop."""
     logger.info("Initializing stream consumer...")
@@ -150,6 +184,9 @@ async def run_consumer():
 
     # Verify database is initialized
     await init_db()
+
+    # Launch background GitHub auto-sync task
+    asyncio.create_task(github_auto_sync_loop())
 
     logger.info(f"Worker connected and listening on stream '{STREAM_NAME}' as consumer '{CONSUMER_NAME}'...")
 

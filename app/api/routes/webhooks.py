@@ -200,6 +200,29 @@ async def github_webhook_handler(
         else:
             return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"PR action {action} not processed"})
 
+    elif x_github_event == "repository":
+        action = payload.get("action")
+        if action == "deleted":
+            if repo:
+                logger.info(f"GitHub repository deleted event received for {full_name} — deleting repo & cascading child records")
+                await session.execute(text("DELETE FROM candidate_causes WHERE repo_id = :r_id"), {"r_id": repo.id})
+                await session.execute(text("DELETE FROM deployments WHERE repo_id = :r_id"), {"r_id": repo.id})
+                await session.execute(text("DELETE FROM repo_metrics WHERE repo_id = :r_id"), {"r_id": repo.id})
+                await session.execute(text("DELETE FROM dependencies WHERE source_repo_id = :r_id OR target_repo_id = :r_id"), {"r_id": repo.id})
+                await session.execute(text("DELETE FROM events WHERE repo_id = :r_id"), {"r_id": repo.id})
+                await session.delete(repo)
+                await session.commit()
+            return JSONResponse(status_code=200, content={"status": "success", "message": f"Repository {full_name} deleted from NexOps"})
+        elif action in ("created", "renamed", "privatized", "publicized"):
+            from app.models.user import User
+            from app.api.routes.integrations import _perform_sync, SyncRequest
+            if repo and repo.user_id:
+                user = await session.get(User, repo.user_id)
+                if user:
+                    req = SyncRequest(provider="github", token="use_stored_token", workspaceId=user.workspace_id)
+                    background_tasks.add_task(_perform_sync, req, user, session)
+            return JSONResponse(status_code=200, content={"status": "success", "message": f"Triggered sync for repository event {action}"})
+
     elif x_github_event == "issues":
         action = payload.get("action")
         if action == "opened":
