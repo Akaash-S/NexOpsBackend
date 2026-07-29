@@ -266,14 +266,6 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     
                     risk_calc = await calculate_deployment_risk(session, repo.id)
                     
-                    dep_query = select(Deployment).where(
-                        Deployment.repo_id == repo.id,
-                        Deployment.commit_hash == commit_hash,
-                        Deployment.environment == env
-                    )
-                    dep_res = await session.execute(dep_query)
-                    existing_dep = dep_res.scalars().first()
-                    
                     now = datetime.utcnow()
                     gh_created_at = dep_item.get("created_at")
                     dep_timestamp = now
@@ -282,6 +274,15 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                             dep_timestamp = datetime.fromisoformat(gh_created_at.replace("Z", "+00:00")).replace(tzinfo=None)
                         except Exception:
                             dep_timestamp = now
+
+                    dep_query = select(Deployment).where(
+                        Deployment.repo_id == repo.id,
+                        Deployment.commit_hash == commit_hash,
+                        Deployment.environment == env,
+                        Deployment.deployed_at == dep_timestamp
+                    )
+                    dep_res = await session.execute(dep_query)
+                    existing_dep = dep_res.scalars().first()
 
                     if existing_dep:
                         existing_dep.deployed_at = dep_timestamp
