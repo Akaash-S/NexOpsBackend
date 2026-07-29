@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlmodel import select, func
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from app.core.database import get_session
