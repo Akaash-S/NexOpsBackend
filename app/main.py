@@ -255,9 +255,9 @@ async def health_check():
 
             try:
                 t0 = time.perf_counter()
-                pd_res = await client.get("https://status.pagerduty.com/api/v2/summary.json")
+                pd_res = await client.get("https://api.pagerduty.com/", headers={"User-Agent": "NexOps-HealthCheck"}, follow_redirects=True)
                 t1 = time.perf_counter()
-                if pd_res.status_code == 200:
+                if pd_res.status_code in (200, 401):  # 200 or 401 (Unauthenticated endpoint reachability)
                     pd_reachable = True
                     pd_latency_ms = round((t1 - t0) * 1000, 2)
             except Exception as e:
