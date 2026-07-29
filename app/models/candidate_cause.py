@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, CheckConstraint
 
 
 class CandidateCause(SQLModel, table=True):
@@ -35,4 +35,5 @@ class CandidateCause(SQLModel, table=True):
 
     __table_args__ = (
         UniqueConstraint("incident_id", "event_id", name="uq_candidate_cause_incident_event"),
+        CheckConstraint("reason IS NOT NULL AND length(trim(reason)) > 0", name="ck_candidate_cause_reason_not_empty"),
     )
