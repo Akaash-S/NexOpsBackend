@@ -44,9 +44,10 @@ class RepoResponse(BaseSchema):
     cluster_id: Optional[str] = None
     
     # Map backend names to camelCase fields for frontend
-    issue_count: int = Field(validation_alias="open_issues")
-    pr_count: int = Field(validation_alias="open_prs")
-    status: str = Field(validation_alias="ci_status")
+    issue_count: int = Field(default=0, validation_alias="open_issues")
+    pr_count: int = Field(default=0, validation_alias="open_prs")
+    ci_status: Optional[str] = Field(default="unknown")
+    status: str = Field(default="active")
     
     stars: int = 0
     forks: int = 0
