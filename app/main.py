@@ -86,23 +86,24 @@ app = FastAPI(
 )
 
 # ── CORS Middleware ──────────────────────────────────────────────────────
-# In production CORS_ORIGINS must be set to the exact deployed frontend URL.
-# The fallback covers local development and the specific production frontend.
-# The regex allows Vercel preview deployments for this project only.
-origins = settings.cors_origins_list or [
+# Merge explicit configuration with standard production & local origins
+configured_origins = settings.cors_origins_list if settings.CORS_ORIGINS else []
+default_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://nexops-frontend.vercel.app",
 ]
 
+origins = list(dict.fromkeys(configured_origins + default_origins))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://nexops-frontend(-[a-z0-9]+)?\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-    expose_headers=["Content-Length"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ── Rate Limiting ───────────────────────────────────────────────────────
