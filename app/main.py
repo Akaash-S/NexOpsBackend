@@ -85,8 +85,14 @@ app = FastAPI(
     redoc_url=None if _is_production else "/redoc",
 )
 
-# ── CORS Middleware ──────────────────────────────────────────────────────
-# Merge explicit configuration with standard production & local origins
+# ── Rate Limiting ───────────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# ── CORS Middleware (Outermost Middleware - Added Last) ─────────────────
+# Must be added LAST so it wraps all inner middlewares (including SlowAPIMiddleware)
+# and guarantees Access-Control-Allow-Origin headers on all responses (2xx, 4xx, and 5xx).
 configured_origins = settings.cors_origins_list if settings.CORS_ORIGINS else []
 default_origins = [
     "http://localhost:3000",
@@ -105,11 +111,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
-# ── Rate Limiting ───────────────────────────────────────────────────────
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
 
 # ── Register API Routes ─────────────────────────────────────────────────
 from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments
