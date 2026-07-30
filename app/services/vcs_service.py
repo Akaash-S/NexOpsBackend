@@ -274,6 +274,24 @@ class VCService:
                     except (ValueError, AttributeError):
                         pass
 
+            # Calculate real activity score based on push/commit recency
+            target_dt = repo.last_commit_at or repo.github_updated_at
+            if target_dt:
+                now = datetime.utcnow()
+                diff_days = (now - target_dt).total_seconds() / 86400.0
+                if diff_days <= 1.0:
+                    repo.activity = 98.0
+                elif diff_days <= 7.0:
+                    repo.activity = round(max(70.0, 98.0 - (diff_days * 4.0)), 1)
+                elif diff_days <= 30.0:
+                    repo.activity = round(max(40.0, 70.0 - ((diff_days - 7.0) * 1.3)), 1)
+                elif diff_days <= 90.0:
+                    repo.activity = round(max(20.0, 40.0 - ((diff_days - 30.0) * 0.3)), 1)
+                else:
+                    repo.activity = round(max(5.0, 20.0 - ((diff_days - 90.0) * 0.1)), 1)
+            else:
+                repo.activity = 10.0
+
             sync_repos.append(repo)
             
         return sync_repos

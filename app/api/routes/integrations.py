@@ -133,6 +133,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 repo.forks = repo_data.forks
                 repo.last_commit_at = repo_data.last_commit_at
                 repo.github_updated_at = repo_data.github_updated_at
+                repo.activity = repo_data.activity
                 repo.updated_at = datetime.utcnow()
             else:
                 # Create new repo
@@ -197,7 +198,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             logger.warning("Skipping repository disconnection reconciliation: GitHub API returned 0 repositories or sync token failed.")
         await session.flush()  # type: ignore
 
-        # 3. Fetch real CI status for active GitHub repos only
+        # 3. Fetch real CI status for active GitHub repos only and recalculate real health score
         if request.provider == "github":
             for repo in synced_repos:
                 if getattr(repo, "status", "active") == "disconnected":
@@ -209,8 +210,19 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                         repo=repo.name
                     )
                     repo.ci_status = ci_status
+                    
+                    # Recalculate health_score dynamically based on real CI status and issue counts
+                    base_health = 100.0
+                    if ci_status == "failing":
+                        base_health -= 30.0
+                    if repo.open_issues > 0:
+                        base_health -= min(repo.open_issues * 2.0, 30.0)
+                    if getattr(repo, "vulnerabilities", 0) > 0:
+                        base_health -= min(repo.vulnerabilities * 10.0, 40.0)
+                    repo.health_score = round(max(10.0, base_health), 1)
+
                     session.add(repo)
-                    logger.info(f"CI status for {repo.owner}/{repo.name}: {ci_status}")
+                    logger.info(f"CI status for {repo.owner}/{repo.name}: {ci_status} | Health Score: {repo.health_score}% | Activity: {repo.activity}%")
                 except Exception as ci_err:
                     logger.warning(f"Failed to fetch CI status for {repo.name}: {ci_err}")
             await session.flush()  # type: ignore
