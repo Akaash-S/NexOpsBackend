@@ -98,18 +98,24 @@ default_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://nexops-frontend.vercel.app",
-    "*"
 ]
 
 origins = list(dict.fromkeys(configured_origins + default_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,  # Explicit allowlist — wildcard removed (security audit P0)
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Hub-Signature-256",
+        "X-PagerDuty-Signature",
+        "X-GitHub-Event",
+        "X-Requested-With",
+    ],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
 
 # ── Register API Routes ─────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from typing import Optional
 from app.core.database import get_session
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.core.rls import rls_bypass  # Security audit P1-B4/B5: guaranteed-safe RLS bypass
 from app.models.event import Event
 from app.models.repo import Repo
 from app.models.incident import Incident
@@ -63,30 +64,21 @@ async def verify_pagerduty_signature(
     if uid:
         from app.models.user import User
         from app.core.crypto import decrypt_secret
-        from sqlalchemy import text
         try:
-            # Temporarily bypass RLS to find the user
-            await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
-            result = await session.execute(select(User).where(User.id == uid))
-            user = result.scalars().first()
-            if user:
-                # Set workspace and user context for the session
-                await session.execute(
-                    text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false), set_config('nexops.bypass_rls', 'false', false)"),
-                    {"workspace_id": user.workspace_id, "user_id": user.id}
-                )
-            else:
-                await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
-
-            if user and user.pagerduty_webhook_secret:
-                webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
-                logger.info(f"Using per-user PagerDuty webhook secret for user {uid}")
+            # rls_bypass context manager guarantees bypass is reset even on exception or early return
+            async with rls_bypass(session):
+                result = await session.execute(select(User).where(User.id == uid))
+                user = result.scalars().first()
+                if user:
+                    # Set workspace and user context for the session (bypass already being reset by CM)
+                    await session.execute(
+                        text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
+                        {"workspace_id": user.workspace_id, "user_id": user.id}
+                    )
+                if user and user.pagerduty_webhook_secret:
+                    webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
+                    logger.info(f"Using per-user PagerDuty webhook secret for user {uid}")
         except Exception as db_err:
-            # Safely disable bypass if error occurs
-            try:
-                await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
-            except Exception:
-                pass
             logger.error(f"Error looking up PagerDuty secret for user {uid}: {db_err}")
 
     if not webhook_secret:
@@ -152,25 +144,20 @@ async def github_webhook_handler(
     if not full_name:
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": "No repository info found in payload"})
 
-    from sqlalchemy import text
-    # Temporarily bypass RLS to lookup repo and resolve its workspace
-    await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
-
     # 2. Find the repository in NexOps database
-    result = await session.execute(  # type: ignore
-        select(Repo).where(Repo.owner == full_name.split("/")[0], Repo.name == full_name.split("/")[1])
-    )
-    repo = result.scalars().first()
-
-    if repo:
-        # Set workspace context and disable bypass
-        await session.execute(
-            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.bypass_rls', 'false', false)"),
-            {"workspace_id": repo.workspace_id}
+    # rls_bypass guarantees nexops.bypass_rls is reset to false on exit
+    repo = None
+    async with rls_bypass(session):
+        result = await session.execute(  # type: ignore
+            select(Repo).where(Repo.owner == full_name.split("/")[0], Repo.name == full_name.split("/")[1])
         )
-    else:
-        # Disable bypass even if not found
-        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
+        repo = result.scalars().first()
+        if repo:
+            # Set workspace context (bypass resets to false when CM exits)
+            await session.execute(
+                text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false)"),
+                {"workspace_id": repo.workspace_id}
+            )
 
     if not repo:
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"Repository {full_name} not tracked in NexOps"})
@@ -370,9 +357,6 @@ async def pagerduty_webhook_handler(
     """
     payload = await request.json()
 
-    # Enable bypass_rls for unauthenticated webhook processing across tables
-    await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
-
     # --- Extract event envelope ---
     event_data = payload.get("event", {})
     if not event_data:
@@ -465,26 +449,26 @@ async def pagerduty_webhook_handler(
     # Fix B — repo matching: use service.summary; prioritize user's workspace if uid present
     repo = None
     if pd_service_name:
-        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
         uid = request.query_params.get("uid")
-        if uid:
-            from app.models.user import User
-            res_user = await session.execute(select(User).where(User.id == uid))
-            usr_obj = res_user.scalars().first()
-            if usr_obj:
-                res_repo = await session.execute(
-                    select(Repo).where(Repo.workspace_id == usr_obj.workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
-                )
-                repo = res_repo.scalars().first()
+        # rls_bypass guarantees bypass is always reset even on early return or exception
+        async with rls_bypass(session):
+            if uid:
+                from app.models.user import User
+                res_user = await session.execute(select(User).where(User.id == uid))
+                usr_obj = res_user.scalars().first()
+                if usr_obj:
+                    res_repo = await session.execute(
+                        select(Repo).where(Repo.workspace_id == usr_obj.workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
+                    )
+                    repo = res_repo.scalars().first()
 
-        if not repo:
-            result = await session.execute(  # type: ignore
-                select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
-            )
-            repo = result.scalars().first()
+            if not repo:
+                result = await session.execute(  # type: ignore
+                    select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
+                )
+                repo = result.scalars().first()
 
     if not repo:
-        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
         # Do NOT fall back to arbitrary first repo. Reject loudly.
         logger.warning(
             f"PagerDuty webhook: service {pd_service_name!r} does not match any tracked repo. "
