@@ -14,12 +14,12 @@ if sys.platform == "win32":
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.core.security import init_firebase
+from app.core.security import init_firebase, get_current_user
 from app.core.rate_limit import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -85,10 +85,21 @@ app = FastAPI(
     redoc_url=None if _is_production else "/redoc",
 )
 
-# ── Rate Limiting ───────────────────────────────────────────────────────
+# ── Rate Limiting ────────────────────────────────────────────────
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+# ── Trusted Proxy Headers (P3 rate-limit fix) ─────────────────────────────
+# Render (and most PaaS load-balancers) forwards the real client IP in
+# X-Forwarded-For. Without this middleware, get_remote_address() returns the
+# proxy IP — causing all users to share a single rate-limit bucket.
+try:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+    logger.info("ProxyHeadersMiddleware registered — real client IPs will be used for rate limiting")
+except ImportError:
+    logger.warning("uvicorn not available — ProxyHeadersMiddleware skipped (rate limiting keyed by proxy IP)")
 
 # ── CORS Middleware (Outermost Middleware - Added Last) ─────────────────
 # Must be added LAST so it wraps all inner middlewares (including SlowAPIMiddleware)
@@ -177,22 +188,60 @@ async def websocket_endpoint(
 from datetime import datetime
 START_TIME = datetime.utcnow()
 
+
 @app.get("/health", tags=["System"])
 @limiter.exempt
 async def health_check():
-    """Expanded diagnostic health check endpoint with live component checks."""
-    import os
+    """
+    Public health check — returns minimal status only.
+    Uptime monitors and load balancers should call this endpoint.
+    Detailed diagnostics (DB branch, latency, worker state) are available
+    on /health/detailed which requires a valid Firebase auth token.
+    """
     import time
-    from datetime import datetime
-    import httpx
     from sqlalchemy import text
     from app.core.database import async_session
-    from app.core.redis import redis_client
+    from app.core.redis import redis_client as _redis
+
+    db_ok = False
+    redis_ok = False
+    try:
+        async with async_session() as s:
+            await s.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+    try:
+        if _redis:
+            await _redis.ping()
+            redis_ok = True
+    except Exception:
+        pass
+
+    status = "operational" if (db_ok and redis_ok) else "degraded"
+    return {"status": status, "service": settings.APP_NAME, "version": "1.0.0"}
+
+
+@app.get("/health/detailed", tags=["System"])
+@limiter.exempt
+async def health_check_detailed(user=Depends(get_current_user)):
+    """
+    Authenticated detailed health check — exposes latencies, DB branch, worker
+    heartbeat, and integration reachability. Requires a valid Firebase ID token.
+    Security audit P3-I2: infra metadata gated behind auth.
+    """
+    import os
+    import time
+    import httpx
+    from datetime import datetime
+    from sqlalchemy import text
+    from app.core.database import async_session
+    from app.core.redis import redis_client as _redis
 
     now = datetime.utcnow()
     uptime_seconds = round((now - START_TIME).total_seconds(), 2)
 
-    # 1. Database check
+    # 1. Database
     db_connected = False
     db_latency_ms = 0.0
     db_branch = "unknown"
@@ -203,111 +252,78 @@ async def health_check():
             db_branch = host_part.split(".")[0]
         elif "://" in db_url_str:
             db_branch = db_url_str.split("://")[1].split("/")[0]
-
         t0 = time.perf_counter()
         async with async_session() as session:
             res = await session.execute(text("SELECT 1"))
             res.scalar()
-        t1 = time.perf_counter()
         db_connected = True
-        db_latency_ms = round((t1 - t0) * 1000, 2)
+        db_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
     except Exception as e:
-        logger.warning(f"Health check DB error: {e}")
+        logger.warning(f"Health/detailed DB error: {e}")
 
-    # 2. Redis & Worker check
+    # 2. Redis
     redis_connected = False
     redis_latency_ms = 0.0
     queue_depth = 0
     worker_last_heartbeat = None
     try:
-        from app.core.redis import redis_client
-        if redis_client:
+        if _redis:
             t0 = time.perf_counter()
-            pong = await redis_client.ping()
-            t1 = time.perf_counter()
-            if pong:
+            if await _redis.ping():
                 redis_connected = True
-                redis_latency_ms = round((t1 - t0) * 1000, 2)
-                
+                redis_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
                 try:
-                    queue_depth = await redis_client.xlen("nexops:events:stream")
+                    queue_depth = await _redis.xlen("nexops:events:stream")
                 except Exception:
-                    queue_depth = 0
-
+                    pass
                 try:
-                    hb = await redis_client.get("nexops:worker:heartbeat")
+                    hb = await _redis.get("nexops:worker:heartbeat")
                     if hb:
                         worker_last_heartbeat = hb.decode() if isinstance(hb, bytes) else str(hb)
                 except Exception:
                     pass
     except Exception as e:
-        logger.warning(f"Health check Redis error: {e}")
+        logger.warning(f"Health/detailed Redis error: {e}")
 
-    # 3. Integrations reachability check
-    gh_reachable = False
-    gh_latency_ms = 0.0
-    pd_reachable = False
-    pd_latency_ms = 0.0
-
+    # 3. Integrations reachability
+    gh_reachable, gh_latency_ms = False, 0.0
+    pd_reachable, pd_latency_ms = False, 0.0
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             try:
                 t0 = time.perf_counter()
-                gh_res = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"})
-                t1 = time.perf_counter()
-                if gh_res.status_code in (200, 403):  # 200 or 403 Rate Limited (proves connectivity)
+                r = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"})
+                if r.status_code in (200, 403):
                     gh_reachable = True
-                    gh_latency_ms = round((t1 - t0) * 1000, 2)
-            except Exception as e:
-                logger.warning(f"Health check GitHub API error: {e}")
-
+                    gh_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            except Exception:
+                pass
             try:
                 t0 = time.perf_counter()
-                pd_res = await client.get("https://api.pagerduty.com/", headers={"User-Agent": "NexOps-HealthCheck"}, follow_redirects=True)
-                t1 = time.perf_counter()
-                if pd_res.status_code in (200, 401):  # 200 or 401 (Unauthenticated endpoint reachability)
+                r = await client.get("https://api.pagerduty.com/", headers={"User-Agent": "NexOps-HealthCheck"}, follow_redirects=True)
+                if r.status_code in (200, 401):
                     pd_reachable = True
-                    pd_latency_ms = round((t1 - t0) * 1000, 2)
-            except Exception as e:
-                logger.warning(f"Health check PagerDuty API error: {e}")
+                    pd_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            except Exception:
+                pass
     except Exception as e:
-        logger.warning(f"Health check HTTP client error: {e}")
-
-    commit_sha = os.getenv("RENDER_GIT_COMMIT", "d98186b")
-    deployed_at = os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z")
+        logger.warning(f"Health/detailed HTTP error: {e}")
 
     overall_status = "operational" if (db_connected and redis_connected) else "degraded"
-
     return {
         "status": overall_status,
         "service": settings.APP_NAME,
         "version": "1.0.0",
-        "commit_sha": commit_sha,
-        "deployed_at": deployed_at,
+        "commit_sha": os.getenv("RENDER_GIT_COMMIT", "unknown"),
+        "deployed_at": os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z"),
         "uptime_seconds": uptime_seconds,
-        "database": {
-            "connected": db_connected,
-            "branch": db_branch,
-            "latency_ms": db_latency_ms
-        },
-        "redis": {
-            "connected": redis_connected,
-            "latency_ms": redis_latency_ms
-        },
-        "worker": {
-            "last_heartbeat_at": worker_last_heartbeat,
-            "queue_depth": queue_depth
-        },
+        "database": {"connected": db_connected, "branch": db_branch, "latency_ms": db_latency_ms},
+        "redis": {"connected": redis_connected, "latency_ms": redis_latency_ms},
+        "worker": {"last_heartbeat_at": worker_last_heartbeat, "queue_depth": queue_depth},
         "integrations": {
-            "github": {
-                "reachable": gh_reachable,
-                "latency_ms": gh_latency_ms
-            },
-            "pagerduty": {
-                "reachable": pd_reachable,
-                "latency_ms": pd_latency_ms
-            }
-        }
+            "github": {"reachable": gh_reachable, "latency_ms": gh_latency_ms},
+            "pagerduty": {"reachable": pd_reachable, "latency_ms": pd_latency_ms},
+        },
     }
 
 
