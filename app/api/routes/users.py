@@ -46,7 +46,7 @@ async def complete_onboarding(
     session.add(db_user)
     await session.commit()
     await session.refresh(db_user)
-    invalidate_user_cache(user.id)
+    await invalidate_user_cache(user.id)
     return db_user
 
 
@@ -69,5 +69,5 @@ async def update_preferences(
     session.add(db_user)
     await session.commit()
     await session.refresh(db_user)
-    invalidate_user_cache(current_user.id)
+    await invalidate_user_cache(current_user.id)
     return db_user
