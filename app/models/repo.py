@@ -28,6 +28,7 @@ class Repo(SQLModel, table=True):
     platform: str = Field(
         sa_column=Column(String, nullable=False, default="github")
     )  # github | gitlab | bitbucket
+    status: str = Field(default="active", max_length=50)  # active | disconnected | archived
     description: Optional[str] = Field(default=None, max_length=500)
     language: Optional[str] = Field(default=None, max_length=50)
     default_branch: str = Field(default="main", max_length=100)

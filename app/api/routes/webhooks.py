@@ -204,15 +204,22 @@ async def github_webhook_handler(
         action = payload.get("action")
         if action == "deleted":
             if repo:
-                logger.info(f"GitHub repository deleted event received for {full_name} — deleting repo & cascading child records")
-                await session.execute(text("DELETE FROM candidate_causes WHERE repo_id = :r_id"), {"r_id": repo.id})
-                await session.execute(text("DELETE FROM deployments WHERE repo_id = :r_id"), {"r_id": repo.id})
-                await session.execute(text("DELETE FROM repo_metrics WHERE repo_id = :r_id"), {"r_id": repo.id})
-                await session.execute(text("DELETE FROM dependencies WHERE source_repo_id = :r_id OR target_repo_id = :r_id"), {"r_id": repo.id})
-                await session.execute(text("DELETE FROM events WHERE repo_id = :r_id"), {"r_id": repo.id})
-                await session.delete(repo)
+                logger.info(f"GitHub repository deleted event received for {full_name} — marking repo as disconnected and preserving historical records")
+                repo.status = "disconnected"
+                repo.updated_at = datetime.utcnow()
+                session.add(repo)
+
+                disconnect_event = Event(
+                    workspace_id=repo.workspace_id,
+                    repo_id=repo.id,
+                    type="repo.disconnected",
+                    source="github",
+                    message=f"Repository {full_name} was deleted on GitHub. Marked as disconnected; historical data preserved.",
+                    severity="warning"
+                )
+                session.add(disconnect_event)
                 await session.commit()
-            return JSONResponse(status_code=200, content={"status": "success", "message": f"Repository {full_name} deleted from NexOps"})
+            return JSONResponse(status_code=200, content={"status": "success", "message": f"Repository {full_name} marked as disconnected in NexOps"})
         elif action in ("created", "renamed", "privatized", "publicized"):
             from app.models.user import User
             from app.api.routes.integrations import _perform_sync, SyncRequest

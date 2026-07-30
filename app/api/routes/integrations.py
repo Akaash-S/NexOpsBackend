@@ -155,7 +155,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 )
                 session.add(sync_event)
 
-        # 1.8 Detect and prune deleted repositories (repos in DB but no longer returned by GitHub)
+        # 1.8 Detect and reconcile deleted/unlinked repositories (soft-disconnect, preserving historical records)
         active_repo_names = {r.name for r in new_repos}
         existing_db_repos_res = await session.execute(
             select(Repo).where(
@@ -166,18 +166,29 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         existing_db_repos = existing_db_repos_res.scalars().all()
         for db_repo in existing_db_repos:
             if db_repo.name not in active_repo_names:
-                logger.info(f"Pruning deleted/unlinked repository from NexOps: {db_repo.name} (id: {db_repo.id})")
-                await session.execute(text("DELETE FROM candidate_causes WHERE repo_id = :r_id"), {"r_id": db_repo.id})
-                await session.execute(text("DELETE FROM deployments WHERE repo_id = :r_id"), {"r_id": db_repo.id})
-                await session.execute(text("DELETE FROM repo_metrics WHERE repo_id = :r_id"), {"r_id": db_repo.id})
-                await session.execute(text("DELETE FROM dependencies WHERE source_repo_id = :r_id OR target_repo_id = :r_id"), {"r_id": db_repo.id})
-                await session.execute(text("DELETE FROM events WHERE repo_id = :r_id"), {"r_id": db_repo.id})
-                await session.delete(db_repo)
+                if db_repo.status != "disconnected":
+                    logger.info(f"Marking deleted/unlinked repository as disconnected in NexOps: {db_repo.name} (id: {db_repo.id})")
+                    db_repo.status = "disconnected"
+                    db_repo.updated_at = datetime.utcnow()
+                    session.add(db_repo)
+                    
+                    disconnect_event = Event(
+                        workspace_id=db_repo.workspace_id,
+                        repo_id=db_repo.id,
+                        type="repo.disconnected",
+                        source=request.provider,
+                        message=f"Repository {db_repo.name} was deleted or unlinked on {request.provider}. Marked as disconnected; historical data preserved.",
+                        severity="warning",
+                        created_at=datetime.utcnow()
+                    )
+                    session.add(disconnect_event)
         await session.flush()  # type: ignore
 
-        # 3. Fetch real CI status for all GitHub repos
+        # 3. Fetch real CI status for active GitHub repos only
         if request.provider == "github":
             for repo in synced_repos:
+                if getattr(repo, "status", "active") == "disconnected":
+                    continue
                 try:
                     ci_status = await vcs_service.fetch_github_ci_status(
                         token=token,
@@ -191,8 +202,13 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     logger.warning(f"Failed to fetch CI status for {repo.name}: {ci_err}")
             await session.flush()  # type: ignore
         
-        # 4. Parse nexops.yaml for all repositories to build real Dependency rows
+        # 4. Parse nexops.yaml for active repositories to build real Dependency rows
         if request.provider == "github":
+            import yaml
+            from app.models.dependency import Dependency
+            for repo in synced_repos:
+                if getattr(repo, "status", "active") == "disconnected":
+                    continue
             import yaml
             from app.models.dependency import Dependency
             for repo in synced_repos:
