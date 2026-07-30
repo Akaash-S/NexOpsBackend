@@ -10,6 +10,7 @@ from app.core.security import get_current_user
 from app.models.incident import Incident
 from app.models.repo import Repo
 from app.models.candidate_cause import CandidateCause
+from app.models.postmortem import Postmortem
 from app.schemas.incident_schema import IncidentResponse, IncidentCreate
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
@@ -234,3 +235,140 @@ async def submit_feedback(
     resp_data = incident.model_dump()
     resp_data["candidate_causes"] = list(cc_all.scalars().all())
     return resp_data
+
+
+# ── Postmortem Endpoints ──────────────────────────────────────────────────────
+
+class PostmortemUpsert(BaseModel):
+    summary:              Optional[str] = None
+    timeline:             Optional[str] = None
+    root_cause:           Optional[str] = None
+    contributing_factors: Optional[str] = None
+    impact:               Optional[str] = None
+    action_items:         Optional[str] = None
+    lessons_learned:      Optional[str] = None
+
+
+@router.get("/{incident_id}/postmortem", tags=["Postmortems"])
+async def get_postmortem(
+    incident_id: str,
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user),
+):
+    """
+    Fetch the postmortem for an incident.
+    Auto-creates an empty draft on first access so the editor can open immediately.
+    """
+    # Verify incident ownership
+    inc_result = await session.execute(
+        select(Incident).where(
+            Incident.id == incident_id,
+            (Incident.workspace_id == user.workspace_id) |
+            (Incident.workspace_id == None) |
+            (Incident.workspace_id == "")
+        )
+    )
+    incident = inc_result.scalar_one_or_none()
+    if not incident:
+        incident = await session.get(Incident, incident_id)
+        if not incident:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+    pm_result = await session.execute(
+        select(Postmortem).where(Postmortem.incident_id == incident_id)
+    )
+    pm = pm_result.scalar_one_or_none()
+
+    if not pm:
+        # Auto-create an empty draft — pre-populate root_cause from confirmed candidate
+        cc_result = await session.execute(
+            select(CandidateCause).where(
+                CandidateCause.incident_id == incident_id,
+                CandidateCause.confirmed == True  # noqa: E712
+            )
+        )
+        confirmed_cause = cc_result.scalars().first()
+        prefill_root_cause = confirmed_cause.reason if confirmed_cause else None
+
+        pm = Postmortem(
+            incident_id=incident_id,
+            workspace_id=incident.workspace_id or user.workspace_id,
+            author_id=user.id,
+            root_cause=prefill_root_cause,
+            status="draft",
+        )
+        session.add(pm)
+        await session.commit()
+        await session.refresh(pm)
+
+    return pm.model_dump()
+
+
+@router.patch("/{incident_id}/postmortem", tags=["Postmortems"])
+async def upsert_postmortem(
+    incident_id: str,
+    body: PostmortemUpsert,
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user),
+):
+    """
+    Update (partial) postmortem fields — acts as an auto-save endpoint.
+    Any field set to None in the request body is left unchanged.
+    """
+    pm_result = await session.execute(
+        select(Postmortem).where(Postmortem.incident_id == incident_id)
+    )
+    pm = pm_result.scalar_one_or_none()
+
+    if not pm:
+        # Trigger auto-create via the GET endpoint logic inline
+        inc = await session.get(Incident, incident_id)
+        if not inc:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        pm = Postmortem(
+            incident_id=incident_id,
+            workspace_id=inc.workspace_id or user.workspace_id,
+            author_id=user.id,
+            status="draft",
+        )
+        session.add(pm)
+
+    update_data = body.model_dump(exclude_none=True)
+    for field, value in update_data.items():
+        setattr(pm, field, value)
+    pm.updated_at = datetime.utcnow()
+
+    session.add(pm)
+    await session.commit()
+    await session.refresh(pm)
+    return pm.model_dump()
+
+
+@router.post("/{incident_id}/postmortem/publish", tags=["Postmortems"])
+async def publish_postmortem(
+    incident_id: str,
+    session: AsyncSession = Depends(get_session),
+    user = Depends(get_current_user),
+):
+    """
+    Mark the postmortem as published. Requires summary and root_cause to be non-empty.
+    """
+    pm_result = await session.execute(
+        select(Postmortem).where(Postmortem.incident_id == incident_id)
+    )
+    pm = pm_result.scalar_one_or_none()
+    if not pm:
+        raise HTTPException(status_code=404, detail="Postmortem not found — create it first via GET or PATCH")
+
+    if not pm.summary or not pm.root_cause:
+        raise HTTPException(
+            status_code=422,
+            detail="Cannot publish: 'summary' and 'root_cause' fields are required."
+        )
+
+    pm.status = "published"
+    pm.updated_at = datetime.utcnow()
+    session.add(pm)
+    await session.commit()
+    await session.refresh(pm)
+    return pm.model_dump()
