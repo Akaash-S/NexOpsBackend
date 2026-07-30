@@ -29,6 +29,7 @@ class TopologyNode(BaseSchema):
     id: str
     name: str
     platform: str
+    status: str = Field(default="active")
     language: Optional[str] = None
     health_score: float
     ci_status: str

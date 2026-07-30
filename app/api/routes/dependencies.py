@@ -68,6 +68,7 @@ async def get_topology(
                 id=r.id,
                 name=r.name,
                 platform=r.platform,
+                status=getattr(r, "status", "active"),
                 language=r.language,
                 health_score=r.health_score,
                 ci_status=r.ci_status,
