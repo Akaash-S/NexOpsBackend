@@ -156,16 +156,25 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 session.add(sync_event)
 
         # 1.8 Detect and reconcile deleted/unlinked repositories (soft-disconnect, preserving historical records)
-        active_repo_names = {r.name for r in new_repos}
+        active_repo_names = set()
+        for r in new_repos:
+            active_repo_names.add(r.name)
+            if r.owner:
+                active_repo_names.add(f"{r.owner}/{r.name}")
+
         existing_db_repos_res = await session.execute(
             select(Repo).where(
-                Repo.user_id == user.id,
+                (Repo.user_id == user.id) | (Repo.workspace_id == user.workspace_id),
                 Repo.platform == request.provider
             )
         )
         existing_db_repos = existing_db_repos_res.scalars().all()
         for db_repo in existing_db_repos:
-            if db_repo.name not in active_repo_names:
+            repo_identifiers = {db_repo.name}
+            if db_repo.owner:
+                repo_identifiers.add(f"{db_repo.owner}/{db_repo.name}")
+            
+            if not repo_identifiers.intersection(active_repo_names):
                 if db_repo.status != "disconnected":
                     logger.info(f"Marking deleted/unlinked repository as disconnected in NexOps: {db_repo.name} (id: {db_repo.id})")
                     db_repo.status = "disconnected"
