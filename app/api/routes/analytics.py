@@ -26,7 +26,10 @@ async def _calculate_dashboard_stats(
     workspace_id: str
 ) -> DashboardStats:
     """Calculate aggregated top-level metrics in a single database query scoped to the workspace."""
-    avg_health_sub = select(func.avg(Repo.health_score)).where(Repo.workspace_id == workspace_id).scalar_subquery()
+    avg_health_sub = select(func.avg(Repo.health_score)).where(
+        Repo.workspace_id == workspace_id,
+        Repo.status != "disconnected"
+    ).scalar_subquery()
     
     alerts_sub = select(func.count(Alert.id)).where(
         Alert.workspace_id == workspace_id,
@@ -111,8 +114,8 @@ async def get_dashboard_summary(
         clusters=clusters
     )
     
-    # Cache the result in Redis with 30s TTL
-    await set_cached_data(cache_key, summary.model_dump(), ttl=30)
+    # Cache the result in Redis with 30s TTL (using mode="json" for clean datetime serialization)
+    await set_cached_data(cache_key, summary.model_dump(mode="json"), ttl=30)
     return summary
 
 @router.get("/dashboard", response_model=DashboardStats)
@@ -127,7 +130,7 @@ async def get_dashboard_stats(
         return DashboardStats(**cached)
 
     stats = await _calculate_dashboard_stats(session, workspace_id=user.workspace_id)
-    await set_cached_data(cache_key, stats.model_dump(), ttl=30)
+    await set_cached_data(cache_key, stats.model_dump(mode="json"), ttl=30)
     return stats
 
 @router.get("/activity", response_model=ActivityResponse)
@@ -185,7 +188,7 @@ async def get_activity_data(
     ]
 
     response_data = ActivityResponse(data=ordered_points)
-    await set_cached_data(cache_key, response_data.model_dump(), ttl=30)
+    await set_cached_data(cache_key, response_data.model_dump(mode="json"), ttl=30)
     return response_data
 
 

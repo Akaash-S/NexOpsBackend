@@ -58,18 +58,34 @@ async def get_cached_data(key: str) -> Optional[Any]:
         return _in_memory_cache.get(key)
     return None
 
+from datetime import datetime, date
+
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code (e.g. datetime)."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
 async def set_cached_data(key: str, data: Any, ttl: int = 30) -> None:
     """Store data in Redis cache with an optional TTL, falling back to in-memory if Redis is down."""
     global _use_in_memory
+    
+    try:
+        serialized = json.dumps(data, default=json_serial)
+        data_dict = json.loads(serialized)
+    except Exception as ser_err:
+        logger.error(f"Failed to serialize data for cache key '{key}': {ser_err}")
+        return
+
     if _use_in_memory or not redis_client:
-        _in_memory_cache[key] = data
+        _in_memory_cache[key] = data_dict
         return
     try:
-        await redis_client.set(key, json.dumps(data), ex=ttl)
+        await redis_client.set(key, serialized, ex=ttl)
     except Exception as e:
         logger.warning(f"Redis cache write failed for key '{key}' (switching to in-memory): {e}")
         _use_in_memory = True
-        _in_memory_cache[key] = data
+        _in_memory_cache[key] = data_dict
 
 async def invalidate_cache_pattern(pattern: str) -> None:
     """Invalidate all cache keys matching the given pattern."""
