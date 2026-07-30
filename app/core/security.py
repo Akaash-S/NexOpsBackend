@@ -25,11 +25,30 @@ def init_firebase():
         else:
             logger.warning(f"Firebase service account file not found at {settings.FIREBASE_SERVICE_ACCOUNT_PATH}")
 
-_user_cache = {}
+# ── User Cache (Redis-backed, in-memory fallback) ────────────────────────
+# Security audit P2: replaced process-local dict with Redis so invalidations
+# propagate across all Render worker instances. TTL of 300s (5 min) ensures
+# stale user records don't persist indefinitely even without explicit invalidation.
+_USER_CACHE_TTL = 300  # seconds
 
-def invalidate_user_cache(user_id: str):
-    """Invalidates the in-memory cache for a given user ID."""
-    _user_cache.pop(user_id, None)
+async def _get_user_from_cache(uid: str) -> dict | None:
+    """Retrieve user dict from Redis cache (falls back to in-memory if Redis is down)."""
+    from app.core.redis import get_cached_data
+    return await get_cached_data(f"nexops:user:{uid}")
+
+async def _set_user_in_cache(uid: str, user_dict: dict) -> None:
+    """Store user dict in Redis cache with TTL (falls back to in-memory if Redis is down)."""
+    from app.core.redis import set_cached_data
+    await set_cached_data(f"nexops:user:{uid}", user_dict, ttl=_USER_CACHE_TTL)
+
+async def invalidate_user_cache(user_id: str) -> None:
+    """
+    Invalidate the cached user record across ALL worker processes via Redis.
+    Falls back gracefully to no-op if Redis is unavailable.
+    """
+    from app.core.redis import invalidate_cache_pattern
+    await invalidate_cache_pattern(f"nexops:user:{user_id}")
+    logger.debug(f"User cache invalidated for {user_id}")
 
 security = HTTPBearer()
 
@@ -43,11 +62,14 @@ async def get_current_user(
     """
     # Verify the Firebase ID token — mock tokens are strictly forbidden in production.
     try:
-        is_dev_env = settings.APP_ENV in ("development", "test", "local") and settings.APP_ENV != "production"
-        if is_dev_env and credentials.credentials == "mock-live-closure":
+        # Security audit P2-A4: mock tokens restricted to APP_ENV="local" only.
+        # Previously all non-production envs (including staging) accepted mock tokens.
+        # Now only exact "local" match permits the bypass, closing the staging gap.
+        is_local_dev = settings.APP_ENV == "local"
+        if is_local_dev and credentials.credentials == "mock-live-closure":
             decoded_token = {"uid": "usr-live-closure", "email": "live-closure-admin@nexops.dev", "name": "Live Closure Admin"}
             uid = "usr-live-closure"
-        elif is_dev_env and credentials.credentials in ("mock-auth-token", "test-token"):
+        elif is_local_dev and credentials.credentials in ("mock-auth-token", "test-token"):
             decoded_token = {"uid": "usr-e2e-smoke", "email": "e2etester@nexops.io", "name": "E2E Smoke Tester"}
             uid = "usr-e2e-smoke"
         else:
@@ -68,9 +90,10 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Serve from cache if available
-    if uid in _user_cache:
-        user = User(**_user_cache[uid])
+    # ── Redis-backed cache lookup (shared across all worker processes) ───
+    cached = await _get_user_from_cache(uid)
+    if cached:
+        user = User(**cached)
         from sqlalchemy import text
         if user.workspace_id:
             await session.execute(
@@ -114,7 +137,9 @@ async def get_current_user(
                 await session.commit()
                 await session.refresh(user)
 
-        _user_cache[uid] = user.model_dump()
+        # Store in Redis-backed cache (cross-process, TTL-expiring)
+        await _set_user_in_cache(uid, user.model_dump())
+
         from sqlalchemy import text
         if user.workspace_id:
             await session.execute(

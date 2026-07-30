@@ -64,22 +64,34 @@ async def verify_pagerduty_signature(
     if uid:
         from app.models.user import User
         from app.core.crypto import decrypt_secret
+        from app.api.routes.integrations import _verify_pd_uid_token
         try:
-            # rls_bypass context manager guarantees bypass is reset even on exception or early return
-            async with rls_bypass(session):
-                result = await session.execute(select(User).where(User.id == uid))
-                user = result.scalars().first()
-                if user:
-                    # Set workspace and user context for the session (bypass already being reset by CM)
-                    await session.execute(
-                        text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
-                        {"workspace_id": user.workspace_id, "user_id": user.id}
-                    )
-                if user and user.pagerduty_webhook_secret:
-                    webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
-                    logger.info(f"Using per-user PagerDuty webhook secret for user {uid}")
-        except Exception as db_err:
-            logger.error(f"Error looking up PagerDuty secret for user {uid}: {db_err}")
+            # Security audit P2-F5: verify the HMAC-signed uid token before trusting it.
+            # Rejects forged/guessed uids from external callers — only tokens produced by
+            # _make_pd_uid_token (signed with ENCRYPTION_KEY) are accepted.
+            uid = _verify_pd_uid_token(uid)
+        except ValueError as token_err:
+            logger.warning(f"PagerDuty webhook received invalid uid token: {token_err}")
+            uid = None  # fall through to global secret fallback
+
+        if uid:
+            try:
+                # rls_bypass context manager guarantees bypass is reset even on exception or early return
+                async with rls_bypass(session):
+                    result = await session.execute(select(User).where(User.id == uid))
+                    user = result.scalars().first()
+                    if user:
+                        # Set workspace and user context for the session (bypass already being reset by CM)
+                        await session.execute(
+                            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
+                            {"workspace_id": user.workspace_id, "user_id": user.id}
+                        )
+                    if user and user.pagerduty_webhook_secret:
+                        webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
+                        logger.info(f"Using per-user PagerDuty webhook secret for user {uid}")
+            except Exception as db_err:
+                logger.error(f"Error looking up PagerDuty secret for user {uid}: {db_err}")
+
 
     if not webhook_secret:
         webhook_secret = settings.PAGERDUTY_WEBHOOK_SECRET

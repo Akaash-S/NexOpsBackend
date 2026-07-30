@@ -63,6 +63,44 @@ def _verify_oauth_state(state: str) -> str:
 
     return uid
 
+# ── PagerDuty Webhook UID Token Helpers ──────────────────────────────────
+# The PagerDuty webhook URL embeds a signed uid token of the form "uid.hmac".
+# This prevents an attacker who discovers another user's raw UID from anchoring
+# an incoming webhook to a workspace they don't own (security audit P2-F5).
+_PD_UID_SCOPE = "nexops-pd-webhook-v1"
+
+def _make_pd_uid_token(uid: str) -> str:
+    """Create a permanently-valid HMAC-signed uid token for PagerDuty webhook URLs."""
+    payload = f"{_PD_UID_SCOPE}:{uid}"
+    sig = hmac.new(
+        settings.ENCRYPTION_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()[:32]  # 128-bit hex prefix — sufficient for URL embeds
+    return f"{uid}.{sig}"
+
+def _verify_pd_uid_token(token: str) -> str:
+    """
+    Validate a signed PagerDuty webhook uid token and return the embedded uid.
+    Raises ValueError if the token is malformed or signature-invalid.
+    """
+    try:
+        uid, received_sig = token.rsplit(".", 1)
+    except ValueError:
+        raise ValueError("Malformed PagerDuty uid token.")
+
+    payload = f"{_PD_UID_SCOPE}:{uid}"
+    expected_sig = hmac.new(
+        settings.ENCRYPTION_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()[:32]
+
+    if not hmac.compare_digest(expected_sig, received_sig):
+        raise ValueError("PagerDuty uid token signature invalid — possible SSRF or spoofing attempt.")
+
+    return uid
+
 router = APIRouter(tags=["Integrations"])
 logger = logging.getLogger("nexops.integrations")
 
@@ -103,7 +141,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             db_user.github_access_token = encrypt_secret(token)
             session.add(db_user)
             await session.flush()  # type: ignore
-            invalidate_user_cache(user.id)
+            await invalidate_user_cache(user.id)
 
         # 2. Persist repos and generate 'Synthetic History' for NEW ones
         synced_repos = []
@@ -377,7 +415,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         if db_user:
             db_user.github_last_synced_at = datetime.utcnow()
             session.add(db_user)
-            invalidate_user_cache(user.id)
+            await invalidate_user_cache(user.id)
 
         await session.commit()  # type: ignore
         return {"status": "success", "synced": len(new_repos)}
@@ -513,7 +551,7 @@ async def github_callback(
     user.github_access_token = encrypted_token
     session.add(user)
     await session.commit()  # type: ignore
-    invalidate_user_cache(user.id)
+    await invalidate_user_cache(user.id)
     logger.info(f"Successfully saved encrypted GitHub access token for user {user.id}")
 
     return RedirectResponse(f"{_frontend}/onboarding?success=github_connected")
@@ -601,7 +639,7 @@ async def disconnect_github(
     db_user.github_access_token = None
     session.add(db_user)
     await session.commit()  # type: ignore
-    invalidate_user_cache(user.id)
+    await invalidate_user_cache(user.id)
     logger.info(f"GitHub disconnected for user {user.id} — existing repo data preserved")
 
     return {"status": "disconnected"}
@@ -635,7 +673,10 @@ async def connect_pagerduty(
 
     # 2. Register a webhook subscription on PagerDuty pointing to our webhook endpoint
     base_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{base_url}/api/v1/webhooks/pagerduty?uid={user.id}"
+    # Security audit P2-F5: sign the uid so incoming webhooks can't be anchored to
+    # an arbitrary user's workspace by an attacker who discovers a raw uid.
+    signed_uid = _make_pd_uid_token(user.id)
+    webhook_url = f"{base_url}/api/v1/webhooks/pagerduty?uid={signed_uid}"
 
     subscription_id = None
     webhook_secret = None
@@ -692,7 +733,7 @@ async def connect_pagerduty(
 
     session.add(db_user)
     await session.commit()  # type: ignore
-    invalidate_user_cache(user.id)
+    await invalidate_user_cache(user.id)
     logger.info(f"PagerDuty connected successfully for user {user.id}")
 
     return {
@@ -729,7 +770,7 @@ async def disconnect_pagerduty(
 
     session.add(db_user)
     await session.commit()  # type: ignore
-    invalidate_user_cache(user.id)
+    await invalidate_user_cache(user.id)
     logger.info(f"PagerDuty disconnected for user {user.id}")
 
     return {"status": "disconnected"}
