@@ -140,29 +140,37 @@ async def github_auto_sync_loop():
     await asyncio.sleep(10)  # Initial startup delay
     while True:
         try:
+            # 1. Fetch user IDs requiring sync in an initial light query
+            user_ids = []
             async with async_session() as session:
                 from app.models.user import User
-                from app.api.routes.integrations import _perform_sync, SyncRequest
-                
-                # Fetch users with connected GitHub tokens
                 result = await session.execute(
-                    select(User).where(User.github_access_token.isnot(None), User.workspace_id.isnot(None))
+                    select(User.id).where(User.github_access_token.isnot(None), User.workspace_id.isnot(None))
                 )
-                users = result.scalars().all()
+                user_ids = result.scalars().all()
 
-                for user in users:
-                    try:
-                        # Scope DB session context
+            # 2. Sync each user in a dedicated, isolated AsyncSession
+            for uid in user_ids:
+                try:
+                    async with async_session() as session:
+                        from app.models.user import User
+                        from app.api.routes.integrations import _perform_sync, SyncRequest
+
+                        db_user = await session.get(User, uid)
+                        if not db_user or not db_user.workspace_id:
+                            continue
+
+                        # Scope DB session context for RLS
                         await session.execute(
                             text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false)"),
-                            {"workspace_id": user.workspace_id, "user_id": user.id}
+                            {"workspace_id": db_user.workspace_id, "user_id": db_user.id}
                         )
-                        
-                        req = SyncRequest(provider="github", token="use_stored_token", workspaceId=user.workspace_id)
-                        await _perform_sync(req, user, session)
-                        logger.info(f"Background GitHub auto-sync completed for user {user.id} (workspace {user.workspace_id})")
-                    except Exception as sync_err:
-                        logger.warning(f"Background auto-sync failed for user {user.id}: {sync_err}")
+
+                        req = SyncRequest(provider="github", token="use_stored_token", workspaceId=db_user.workspace_id)
+                        await _perform_sync(req, db_user, session)
+                        logger.info(f"Background GitHub auto-sync completed for user {db_user.id} (workspace {db_user.workspace_id})")
+                except Exception as sync_err:
+                    logger.warning(f"Background auto-sync failed for user {uid}: {sync_err}")
         except Exception as e:
             logger.error(f"Error in GitHub background auto-sync loop: {e}")
         

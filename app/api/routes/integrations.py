@@ -209,9 +209,6 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             for repo in synced_repos:
                 if getattr(repo, "status", "active") == "disconnected":
                     continue
-            import yaml
-            from app.models.dependency import Dependency
-            for repo in synced_repos:
                 try:
                     file_data = await vcs_service.fetch_github_file_content(
                         token=token,
@@ -272,7 +269,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     logger.warning(f"Failed to parse nexops.yaml for {repo.name}: {yaml_err}")
             await session.flush()  # type: ignore
 
-        # 5. Fetch historical deployments & register webhooks for GitHub repos
+        # 5. Fetch historical deployments & register webhooks for active GitHub repos
         if request.provider == "github":
             from app.models.deployment import Deployment
             from app.services.impact_service import calculate_deployment_risk
@@ -281,6 +278,8 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             webhook_endpoint = "https://nexopsbackend.onrender.com/api/v1/webhooks/github"
             
             for repo in synced_repos:
+                if getattr(repo, "status", "active") == "disconnected":
+                    continue
                 owner = repo.owner or "unknown"
                 # Register webhook on GitHub repository
                 await vcs_service.register_github_webhook(
