@@ -111,7 +111,7 @@ class VCService:
     async def fetch_github_ci_status(token: str, owner: str, repo: str) -> str:
         """
         Fetch the most recent workflow run status from GitHub Actions.
-        Returns one of: "passing", "failing", "running", "unknown".
+        Returns one of: "passing", "failing", "running", "unconfigured", "no_runs", "unknown".
         """
         url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
         headers = {
@@ -126,13 +126,13 @@ class VCService:
                     headers=headers,
                     params={"per_page": 1, "page": 1}
                 )
-                if response.status_code == 404:
-                    return "unknown"
+                if response.status_code in (404, 409):
+                    return "unconfigured"
                 response.raise_for_status()
                 data = response.json()
                 runs = data.get("workflow_runs", [])
                 if not runs:
-                    return "unknown"
+                    return "no_runs"
 
                 run = runs[0]
                 status = run.get("status")
@@ -149,8 +149,8 @@ class VCService:
                 return "unknown"
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 409:
-                return "unknown"
+            if e.response.status_code in (404, 409):
+                return "unconfigured"
             logger.warning(f"CI status check failed for {owner}/{repo}: HTTP {e.response.status_code}")
             return "unknown"
         except Exception as e:
