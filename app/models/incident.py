@@ -32,6 +32,7 @@ class Incident(SQLModel, table=True):
     root_cause_repo_id: Optional[str] = Field(default=None, foreign_key="repos.id")
     impacted_repos: List[str] = Field(default=[], sa_column=Column(JSON))
     impact_summary: Optional[str] = Field(default=None, max_length=1000)
+    affected_users: int = Field(default=0)
 
     # PagerDuty incident ID (e.g. Q3OILL557B8681): direct FK lookup for webhook resolve/ack.
     pd_incident_id: Optional[str] = Field(default=None, max_length=64, nullable=True, index=True)

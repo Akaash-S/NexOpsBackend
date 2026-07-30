@@ -10,6 +10,7 @@ class IncidentBase(BaseSchema):
     cluster_id: Optional[str] = None
     root_cause_repo_id: Optional[str] = None
     impact_summary: Optional[str] = None
+    affected_users: int = 0
     pd_incident_id: Optional[str] = None
 
 class IncidentCreate(IncidentBase):
