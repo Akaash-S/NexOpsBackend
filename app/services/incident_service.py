@@ -201,6 +201,10 @@ async def get_or_create_incident(
         await session.flush()
         return existing_incident
 
+    # Fetch repository workspace_id
+    repo = await session.get(Repo, repo_id)
+    workspace_id = repo.workspace_id if repo else None
+
     # Dynamically estimate real affected users based on incident severity and impacted service count
     base_users = 250 if severity == "critical" else (100 if severity == "high" else 25)
     repo_multiplier = max(1, len(impacted_repos) + 1)
