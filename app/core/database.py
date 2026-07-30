@@ -4,9 +4,12 @@ Async PostgreSQL connection pool using SQLModel + SQLAlchemy async.
 """
 
 from typing import AsyncGenerator
+import logging
 from sqlmodel import SQLModel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.core.config import settings
+
+logger = logging.getLogger("nexops.database")
 
 import ssl as ssl_module
 
@@ -35,11 +38,13 @@ async_session = async_sessionmaker(
 
 
 async def init_db():
-    """Create all tables on startup."""
+    """Create all tables and run DDL schema migrations on startup."""
     try:
         async with engine.begin() as conn:
             from sqlalchemy import text
             await conn.execute(text("ALTER TABLE repos ADD COLUMN IF NOT EXISTS user_id VARCHAR;"))
+            await conn.execute(text("ALTER TABLE repos ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active';"))
+            await conn.execute(text("UPDATE repos SET status = 'active' WHERE status IS NULL;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_last_synced_at TIMESTAMP;"))
             await conn.run_sync(SQLModel.metadata.create_all)
     except Exception as e:
