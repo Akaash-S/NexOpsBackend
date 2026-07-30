@@ -156,41 +156,45 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 session.add(sync_event)
 
         # 1.8 Detect and reconcile deleted/unlinked repositories (soft-disconnect, preserving historical records)
-        active_repo_names = set()
-        for r in new_repos:
-            active_repo_names.add(r.name)
-            if r.owner:
-                active_repo_names.add(f"{r.owner}/{r.name}")
+        # ONLY reconcile if new_repos was successfully fetched and non-empty to prevent accidental mass-disconnections on API failures
+        if len(new_repos) > 0:
+            active_repo_names = set()
+            for r in new_repos:
+                active_repo_names.add(r.name)
+                if r.owner:
+                    active_repo_names.add(f"{r.owner}/{r.name}")
 
-        existing_db_repos_res = await session.execute(
-            select(Repo).where(
-                (Repo.user_id == user.id) | (Repo.workspace_id == user.workspace_id),
-                Repo.platform == request.provider
+            existing_db_repos_res = await session.execute(
+                select(Repo).where(
+                    (Repo.user_id == user.id) | (Repo.workspace_id == user.workspace_id),
+                    Repo.platform == request.provider
+                )
             )
-        )
-        existing_db_repos = existing_db_repos_res.scalars().all()
-        for db_repo in existing_db_repos:
-            repo_identifiers = {db_repo.name}
-            if db_repo.owner:
-                repo_identifiers.add(f"{db_repo.owner}/{db_repo.name}")
-            
-            if not repo_identifiers.intersection(active_repo_names):
-                if db_repo.status != "disconnected":
-                    logger.info(f"Marking deleted/unlinked repository as disconnected in NexOps: {db_repo.name} (id: {db_repo.id})")
-                    db_repo.status = "disconnected"
-                    db_repo.updated_at = datetime.utcnow()
-                    session.add(db_repo)
-                    
-                    disconnect_event = Event(
-                        workspace_id=db_repo.workspace_id,
-                        repo_id=db_repo.id,
-                        type="repo.disconnected",
-                        source=request.provider,
-                        message=f"Repository {db_repo.name} was deleted or unlinked on {request.provider}. Marked as disconnected; historical data preserved.",
-                        severity="warning",
-                        created_at=datetime.utcnow()
-                    )
-                    session.add(disconnect_event)
+            existing_db_repos = existing_db_repos_res.scalars().all()
+            for db_repo in existing_db_repos:
+                repo_identifiers = {db_repo.name}
+                if db_repo.owner:
+                    repo_identifiers.add(f"{db_repo.owner}/{db_repo.name}")
+                
+                if not repo_identifiers.intersection(active_repo_names):
+                    if db_repo.status != "disconnected":
+                        logger.info(f"Marking deleted/unlinked repository as disconnected in NexOps: {db_repo.name} (id: {db_repo.id})")
+                        db_repo.status = "disconnected"
+                        db_repo.updated_at = datetime.utcnow()
+                        session.add(db_repo)
+                        
+                        disconnect_event = Event(
+                            workspace_id=db_repo.workspace_id,
+                            repo_id=db_repo.id,
+                            type="repo.disconnected",
+                            source=request.provider,
+                            message=f"Repository {db_repo.name} was deleted or unlinked on {request.provider}. Marked as disconnected; historical data preserved.",
+                            severity="warning",
+                            created_at=datetime.utcnow()
+                        )
+                        session.add(disconnect_event)
+        else:
+            logger.warning("Skipping repository disconnection reconciliation: GitHub API returned 0 repositories or sync token failed.")
         await session.flush()  # type: ignore
 
         # 3. Fetch real CI status for active GitHub repos only
