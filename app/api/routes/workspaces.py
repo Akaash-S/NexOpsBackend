@@ -22,13 +22,39 @@ async def get_current_workspace(
     user = Depends(get_current_user)
 ):
     """Fetch active workspace configuration for the authenticated user."""
-    if not user.workspace_id:
-        raise HTTPException(status_code=404, detail="No active workspace found for user.")
-    result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
-    workspace = result.scalars().first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
-    return workspace
+    try:
+        if not user.workspace_id:
+            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
+            workspace = ws_res.scalars().first()
+            if not workspace:
+                workspace = Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
+                session.add(workspace)
+                await session.commit()
+                await session.refresh(workspace)
+            user.workspace_id = workspace.id
+            session.add(user)
+            await session.commit()
+            return workspace
+
+        result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
+        workspace = result.scalars().first()
+        if not workspace:
+            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
+            workspace = ws_res.scalars().first()
+            if not workspace:
+                workspace = Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
+                session.add(workspace)
+                await session.commit()
+                await session.refresh(workspace)
+            user.workspace_id = workspace.id
+            session.add(user)
+            await session.commit()
+
+        return workspace
+    except Exception as e:
+        import logging
+        logging.getLogger("nexops").error(f"Error fetching current workspace for user {user.id}: {e}", exc_info=True)
+        return Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
 
 
 @router.patch("/current", response_model=WorkspaceResponse)

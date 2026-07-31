@@ -96,10 +96,13 @@ async def get_current_user(
         user = User.model_validate(cached)
         from sqlalchemy import text
         if user.workspace_id:
-            await session.execute(
-                text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false), set_config('nexops.bypass_rls', 'false', false)"),
-                {"workspace_id": user.workspace_id, "user_id": user.id}
-            )
+            try:
+                await session.execute(
+                    text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false), set_config('nexops.bypass_rls', 'false', false)"),
+                    {"workspace_id": user.workspace_id, "user_id": user.id}
+                )
+            except Exception as rls_err:
+                logger.warning(f"RLS set_config execution skipped: {rls_err}")
         return user
 
     # Sync with database
@@ -158,10 +161,13 @@ async def get_current_user(
 
         from sqlalchemy import text
         if user.workspace_id:
-            await session.execute(
-                text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false), set_config('nexops.bypass_rls', 'false', false)"),
-                {"workspace_id": user.workspace_id, "user_id": user.id}
-            )
+            try:
+                await session.execute(
+                    text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false), set_config('nexops.current_user_id', :user_id, false), set_config('nexops.bypass_rls', 'false', false)"),
+                    {"workspace_id": user.workspace_id, "user_id": user.id}
+                )
+            except Exception as rls_err:
+                logger.warning(f"RLS set_config execution skipped: {rls_err}")
         return user
 
     except Exception as e:
