@@ -115,19 +115,32 @@ origins = list(dict.fromkeys(configured_origins + default_origins))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Explicit allowlist — wildcard removed (security audit P0)
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
+        "*",
         "Authorization",
         "Content-Type",
         "X-Hub-Signature-256",
         "X-PagerDuty-Signature",
         "X-GitHub-Event",
         "X-Requested-With",
+        "X-Workspace-ID",
     ],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
+
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request, exc):
+    logger.error(f"Global unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred while processing your request."},
+    )
 
 # ── Register API Routes ─────────────────────────────────────────────────
 from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, workspaces

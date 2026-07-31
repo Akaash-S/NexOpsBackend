@@ -137,6 +137,22 @@ async def get_current_user(
                 await session.commit()
                 await session.refresh(user)
 
+        # Ensure user has a workspace_id assigned
+        if not user.workspace_id:
+            from app.models.workspace import Workspace
+            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
+            default_ws = ws_res.scalars().first()
+            if not default_ws:
+                default_ws = Workspace(id="default-workspace", name="Default Workspace")
+                session.add(default_ws)
+                await session.commit()
+                await session.refresh(default_ws)
+
+            user.workspace_id = default_ws.id
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
         # Store in Redis-backed cache (cross-process, TTL-expiring)
         await _set_user_in_cache(uid, user.model_dump())
 
