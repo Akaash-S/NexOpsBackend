@@ -12,6 +12,7 @@ from app.core.rate_limit import limiter
 from app.models.repo import Repo
 from app.models.user import User
 from app.models.event import Event
+from app.models.workspace_acknowledgment import WorkspaceAcknowledgment
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import httpx
@@ -20,6 +21,14 @@ import hmac
 import hashlib
 import time
 from app.core.config import settings
+
+async def _is_terms_acknowledged(session: AsyncSession, workspace_id: str) -> bool:
+    """Check if the workspace has recorded an acknowledgment of Terms of Service and Privacy Notice."""
+    result = await session.execute(
+        select(WorkspaceAcknowledgment).where(WorkspaceAcknowledgment.workspace_id == workspace_id)
+    )
+    return result.scalars().first() is not None
+
 
 # ── OAuth State Token Helpers ────────────────────────────────────────────
 # State is a signed token of the form "uid:expiry:hmac" where the HMAC is
@@ -591,7 +600,11 @@ async def get_integration_status(
         except Exception:
             pagerduty_connected = False
 
+    # Terms Acknowledgment Gate check for status response
+    terms_acknowledged = await _is_terms_acknowledged(session, user.workspace_id)
+
     return {
+        "terms_acknowledged": terms_acknowledged,
         "github": {
             "connected": github_connected,
             "config": "OAuth Connected (read-only)" if github_connected else "Not configured",
@@ -605,12 +618,50 @@ async def get_integration_status(
     }
 
 
+@router.post("/integrations/terms/acknowledge")
+async def acknowledge_terms(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Record one-time per-workspace acknowledgment of Terms of Service and Privacy Notice."""
+    existing = await session.execute(
+        select(WorkspaceAcknowledgment).where(WorkspaceAcknowledgment.workspace_id == user.workspace_id)
+    )
+    ack = existing.scalars().first()
+    if not ack:
+        ack = WorkspaceAcknowledgment(
+            workspace_id=user.workspace_id,
+            user_id=user.id,
+            terms_version="v1.0",
+            acknowledged_at=datetime.utcnow()
+        )
+        session.add(ack)
+        await session.commit()
+        logger.info(f"Workspace {user.workspace_id} acknowledged Terms of Service v1.0 by user {user.id}")
+    return {
+        "status": "acknowledged",
+        "workspace_id": user.workspace_id,
+        "user_id": user.id,
+        "terms_version": ack.terms_version,
+        "acknowledged_at": ack.acknowledged_at.isoformat()
+    }
+
+
 @router.get("/integrations/github/oauth-url")
 async def get_github_oauth_url(
     request: Request,
     user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """Return the GitHub OAuth URL as JSON so the frontend can redirect with auth."""
+    # Gate check: require terms & privacy acknowledgment for workspace
+    if not await _is_terms_acknowledged(session, user.workspace_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Terms of Service and Privacy Notice must be acknowledged before connecting integrations.",
+            headers={"X-NexOps-Terms-Gate": "terms_not_acknowledged"}
+        )
+
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=500, detail="GitHub OAuth is not configured.")
 
@@ -661,9 +712,18 @@ async def connect_pagerduty(
     session: AsyncSession = Depends(get_session),
 ):
     """Validate API token, register a webhook subscription on PagerDuty, and store credentials."""
+    # Gate check: require terms & privacy acknowledgment for workspace
+    if not await _is_terms_acknowledged(session, user.workspace_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Terms of Service and Privacy Notice must be acknowledged before connecting integrations.",
+            headers={"X-NexOps-Terms-Gate": "terms_not_acknowledged"}
+        )
+
     token = payload.token.strip()
     if not token:
         raise HTTPException(status_code=400, detail="PagerDuty API token cannot be empty.")
+
 
     from app.services.pagerduty_service import pagerduty_service
     from app.core.crypto import encrypt_secret

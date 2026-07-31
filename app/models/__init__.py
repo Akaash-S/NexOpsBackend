@@ -11,6 +11,7 @@ from app.models.candidate_cause import CandidateCause
 from app.models.candidate_cause_feedback_log import CandidateCauseFeedbackLog
 from app.models.scoring_weight_recalibration import ScoringWeightRecalibration
 from app.models.postmortem import Postmortem
+from app.models.workspace_acknowledgment import WorkspaceAcknowledgment
 
 # Explicitly define exports
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "CandidateCauseFeedbackLog",
     "ScoringWeightRecalibration",
     "Postmortem",
+    "WorkspaceAcknowledgment",
 ]
+
