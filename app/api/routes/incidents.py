@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, verify_extended_navigation
 from app.models.incident import Incident
 from app.models.repo import Repo
 from app.models.candidate_cause import CandidateCause
@@ -254,6 +254,7 @@ async def get_postmortem(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """
     Fetch the postmortem for an incident.
@@ -310,6 +311,7 @@ async def upsert_postmortem(
     body: PostmortemUpsert,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """
     Update (partial) postmortem fields — acts as an auto-save endpoint.
@@ -349,6 +351,7 @@ async def publish_postmortem(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """
     Mark the postmortem as published. Requires summary and root_cause to be non-empty.

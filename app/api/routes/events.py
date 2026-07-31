@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, verify_extended_navigation
 from app.models.user import User
 from app.schemas.event_schema import EventCreate, EventResponse
 from app.services import event_service
@@ -70,6 +70,7 @@ async def list_events(
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """List events with optional filtering, scoped to current user."""
     events = await event_service.get_events(

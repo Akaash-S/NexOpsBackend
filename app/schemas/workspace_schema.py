@@ -15,6 +15,7 @@ class WorkspaceBase(BaseSchema):
     description: Optional[str] = None
     provider: str = Field(default="custom")
     status: str = Field(default="connected")
+    show_extended_navigation: bool = Field(default=False)
 
 
 class WorkspaceCreate(WorkspaceBase):
@@ -28,6 +29,7 @@ class WorkspaceUpdate(BaseSchema):
     provider: Optional[str] = None
     status: Optional[str] = None
     access_token: Optional[str] = None
+    show_extended_navigation: Optional[bool] = None
 
 
 class WorkspaceResponse(WorkspaceBase):

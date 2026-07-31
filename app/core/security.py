@@ -159,3 +159,26 @@ async def get_current_user(
 def get_uid(user: User = Security(get_current_user)) -> str:
     """Helper dependency to extract the user's UID from the verified User model."""
     return user.id
+
+
+async def verify_extended_navigation(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session)
+) -> None:
+    """
+    Guard dependency that verifies the user's workspace has show_extended_navigation == True.
+    Raises HTTP 403 Forbidden if extended navigation is disabled.
+    """
+    if not user.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Extended navigation features are disabled for this workspace."
+        )
+    from app.models.workspace import Workspace
+    result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
+    workspace = result.scalars().first()
+    if not workspace or not workspace.show_extended_navigation:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Extended navigation features are disabled for this workspace."
+        )

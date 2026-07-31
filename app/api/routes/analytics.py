@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from datetime import datetime
 from app.core.database import get_session
-from app.core.security import get_current_user
+from app.core.security import get_current_user, verify_extended_navigation
 from app.core.redis import get_cached_data, set_cached_data
 from app.models.repo import Repo
 from app.models.alert import Alert
@@ -82,7 +82,8 @@ async def _calculate_dashboard_stats(
 async def get_dashboard_summary(
     workspace_id: str = Query(None),
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """
     Get all dashboard data in a single request, cached in Redis.
@@ -121,7 +122,8 @@ async def get_dashboard_summary(
 @router.get("/dashboard", response_model=DashboardStats)
 async def get_dashboard_stats(
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """Get aggregated top-level metrics for the dashboard, cached in Redis."""
     cache_key = f"cache:dashboard:stats:{user.id}"
@@ -136,7 +138,8 @@ async def get_dashboard_stats(
 @router.get("/activity", response_model=ActivityResponse)
 async def get_activity_data(
     session: AsyncSession = Depends(get_session),
-    user = Depends(get_current_user)
+    user = Depends(get_current_user),
+    _ext = Depends(verify_extended_navigation)
 ):
     """Get real time-series data for velocity charts from the Events table, cached in Redis."""
     cache_key = f"cache:dashboard:activity:{user.id}"

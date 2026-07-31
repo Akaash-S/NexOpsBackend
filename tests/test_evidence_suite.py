@@ -108,7 +108,7 @@ async def test_5_postmortem_api_lifecycle():
     app.dependency_overrides[get_current_user] = lambda: test_user
 
     async with async_session() as session:
-        ws = Workspace(id=test_ws_id, name="Pytest Workspace", slug=test_ws_id)
+        ws = Workspace(id=test_ws_id, name="Pytest Workspace", slug=test_ws_id, show_extended_navigation=True)
         session.add(ws)
         await session.commit()
 
@@ -161,6 +161,16 @@ async def test_6_analytics_dashboard_endpoint():
     test_user = User(id="usr-pytest-analytics", email="analytics@nexops.io", full_name="Analytics Tester", workspace_id="ws-test-dummy", role="member")
     app.dependency_overrides[get_current_user] = lambda: test_user
 
+    async with async_session() as session:
+        ws = await session.get(Workspace, "ws-test-dummy")
+        if not ws:
+            ws = Workspace(id="ws-test-dummy", name="Dummy Test WS", show_extended_navigation=True)
+            session.add(ws)
+        else:
+            ws.show_extended_navigation = True
+            session.add(ws)
+        await session.commit()
+
     try:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -178,6 +188,16 @@ async def test_7_events_list_endpoint():
     """Assertion 7: Verify /events endpoint returns event list scoped to user workspace."""
     test_user = User(id="usr-pytest-events", email="events@nexops.io", full_name="Events Tester", workspace_id="ws-test-dummy", role="member")
     app.dependency_overrides[get_current_user] = lambda: test_user
+
+    async with async_session() as session:
+        ws = await session.get(Workspace, "ws-test-dummy")
+        if not ws:
+            ws = Workspace(id="ws-test-dummy", name="Dummy Test WS", show_extended_navigation=True)
+            session.add(ws)
+        else:
+            ws.show_extended_navigation = True
+            session.add(ws)
+        await session.commit()
 
     try:
         transport = httpx.ASGITransport(app=app)
