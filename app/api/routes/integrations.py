@@ -253,6 +253,8 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     base_health = 100.0
                     if ci_status == "failing":
                         base_health -= 30.0
+                    elif ci_status in ("no_runs", "unknown", "none"):
+                        base_health -= 25.0  # Penalty for unverified CI pipeline status
                     if repo.open_issues > 0:
                         base_health -= min(repo.open_issues * 2.0, 30.0)
                     if getattr(repo, "vulnerabilities", 0) > 0:

@@ -46,7 +46,12 @@ async def calculate_health_score(session: AsyncSession, repo_id: str) -> Optiona
         success_count = sum(1 for p in recent_pipelines if p.status == "success")
         ci_success_rate = (success_count / len(recent_pipelines)) * 100
     else:
-        ci_success_rate = 100.0  # No pipelines = assume healthy
+        if getattr(repo, 'ci_status', 'unknown') == 'failing':
+            ci_success_rate = 0.0
+        elif getattr(repo, 'ci_status', 'unknown') == 'passing':
+            ci_success_rate = 100.0
+        else:
+            ci_success_rate = 50.0  # Unverified baseline neutral score (not silent 100%)
 
     # ── Factor 2: Commit Activity (30% weight) ──────────────────────────
     # Based on repo.activity (0-100 scale from external data)
