@@ -32,6 +32,8 @@ The high-throughput, async Python backend for **NexOps** — powers real-time in
 3. **Automated GitHub Auto-Sync & Repo Pruning**: Background polling loop (every 60s) automatically discovers new repos, syncs deployments, and prunes deleted repos from PostgreSQL.
 4. **Impact & Risk Scoring Engine**: Dynamically calculates deployment risk scores based on dependency depth, temporal proximity, and active incident correlation.
 5. **Comprehensive Diagnostic `/health` Endpoint**: Live request-time checks for Database, Redis, Background Worker heartbeat, and GitHub/PagerDuty API reachability.
+6. **Workspace Feature Flag Guard (`show_extended_navigation`)**: Security dependency (`app/core/security.py:verify_extended_navigation`) gating `/analytics/*`, `/events`, `/automation/*`, and `/incidents/{id}/postmortem` routes behind a workspace tenant flag (default `False`).
+
 
 ---
 
