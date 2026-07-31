@@ -137,9 +137,15 @@ from fastapi.responses import JSONResponse
 @app.exception_handler(Exception)
 async def global_unhandled_exception_handler(request, exc):
     logger.error(f"Global unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    origin = request.headers.get("origin", "*")
     return JSONResponse(
         status_code=500,
         content={"detail": "An internal server error occurred while processing your request."},
+        headers={
+            "Access-Control-Allow-Origin": origin if origin else "*",
+            "Access-Control-Allow-Credentials": "false",
+            "Access-Control-Allow-Headers": "*",
+        }
     )
 
 # ── Register API Routes ─────────────────────────────────────────────────

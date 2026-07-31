@@ -93,7 +93,7 @@ async def get_current_user(
     # ── Redis-backed cache lookup (shared across all worker processes) ───
     cached = await _get_user_from_cache(uid)
     if cached:
-        user = User(**cached)
+        user = User.model_validate(cached)
         from sqlalchemy import text
         if user.workspace_id:
             await session.execute(
@@ -154,7 +154,7 @@ async def get_current_user(
             await session.refresh(user)
 
         # Store in Redis-backed cache (cross-process, TTL-expiring)
-        await _set_user_in_cache(uid, user.model_dump())
+        await _set_user_in_cache(uid, user.model_dump(mode="json"))
 
         from sqlalchemy import text
         if user.workspace_id:
