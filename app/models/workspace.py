@@ -22,7 +22,7 @@ class Workspace(SQLModel, table=True):
     description: Optional[str] = Field(default=None, max_length=500)
     provider: str = Field(default="custom")
     status: str = Field(default="connected")
-    show_extended_navigation: bool = Field(default=False)
+    show_extended_navigation: bool = Field(default=True)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
