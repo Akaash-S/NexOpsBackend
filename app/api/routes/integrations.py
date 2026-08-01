@@ -424,7 +424,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         # Stamp the successful sync time on the user record
         db_user = await session.get(User, user.id)
         if db_user:
-            db_user.github_last_synced_at = datetime.utcnow()
+            db_user.github_last_synced_at = datetime.now(timezone.utc).replace(tzinfo=None)  # Store as UTC naive for DB compat
             session.add(db_user)
             await invalidate_user_cache(user.id)
 
@@ -576,32 +576,49 @@ async def get_integration_status(
     """Return real connection status for all integration providers."""
     from app.core.crypto import decrypt_secret
 
+    # Always re-fetch the user fresh from DB so github_last_synced_at and
+    # pagerduty fields reflect the most recent sync/connect — the user object
+    # injected by get_current_user may be a cached snapshot from before the
+    # last sync stamped github_last_synced_at.
+    db_user = await session.get(User, user.id)
+    fresh_user = db_user if db_user else user
+
     # GitHub: check whether the encrypted token exists AND can be decrypted
     github_connected = False
-    if user.github_access_token:
+    if fresh_user.github_access_token:
         try:
-            token = decrypt_secret(user.github_access_token)
+            token = decrypt_secret(fresh_user.github_access_token)
             github_connected = bool(token)
         except Exception:
             github_connected = False
 
     # Count tracked repos (scoped to this user)
     count_result = await session.execute(
-        select(func.count(Repo.id)).where(Repo.user_id == user.id)
+        select(func.count(Repo.id)).where(Repo.user_id == fresh_user.id)
     )
     synced_repos_count = count_result.scalar() or 0
 
     # PagerDuty: check whether the encrypted token exists AND can be decrypted
     pagerduty_connected = False
-    if user.pagerduty_access_token:
+    if fresh_user.pagerduty_access_token:
         try:
-            pd_token = decrypt_secret(user.pagerduty_access_token)
+            pd_token = decrypt_secret(fresh_user.pagerduty_access_token)
             pagerduty_connected = bool(pd_token)
         except Exception:
             pagerduty_connected = False
 
     # Terms Acknowledgment Gate check for status response
-    terms_acknowledged = await _is_terms_acknowledged(session, user.workspace_id)
+    terms_acknowledged = await _is_terms_acknowledged(session, fresh_user.workspace_id)
+
+    # Emit latest_sync_at as an explicit UTC ISO-8601 string so the browser
+    # parses it correctly regardless of the server's local timezone.
+    latest_sync_at: str | None = None
+    if fresh_user.github_last_synced_at:
+        ts = fresh_user.github_last_synced_at
+        # The DB stores naive datetimes in UTC — attach the timezone before emitting
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        latest_sync_at = ts.isoformat()  # e.g. "2026-08-01T18:14:00+00:00"
 
     return {
         "terms_acknowledged": terms_acknowledged,
@@ -609,7 +626,7 @@ async def get_integration_status(
             "connected": github_connected,
             "config": "OAuth Connected (read-only)" if github_connected else "Not configured",
             "synced_repos_count": synced_repos_count,
-            "latest_sync_at": user.github_last_synced_at.isoformat() if user.github_last_synced_at else None,
+            "latest_sync_at": latest_sync_at,
         },
         "pagerduty": {
             "connected": pagerduty_connected,
