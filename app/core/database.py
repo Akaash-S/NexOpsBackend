@@ -47,6 +47,11 @@ async def init_db():
             await conn.execute(text("UPDATE repos SET status = 'active' WHERE status IS NULL;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS github_last_synced_at TIMESTAMP;"))
             await conn.execute(text("ALTER TABLE incidents ADD COLUMN IF NOT EXISTS affected_users INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS show_extended_navigation BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS color VARCHAR;"))
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description VARCHAR;"))
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS provider VARCHAR;"))
+            await conn.execute(text("ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active';"))
             await conn.run_sync(SQLModel.metadata.create_all)
     except Exception as e:
         logger.warning(f"init_db schema check warning: {e}")

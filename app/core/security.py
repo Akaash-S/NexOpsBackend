@@ -121,13 +121,22 @@ async def get_current_user(
         if not user:
             # Ensure default workspace exists before instantiating User
             from app.models.workspace import Workspace
-            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
-            default_ws = ws_res.scalars().first()
+            default_ws_id = "default-workspace"
+            try:
+                ws_res = await session.execute(select(Workspace).where(Workspace.id == default_ws_id))
+                default_ws = ws_res.scalars().first()
+            except Exception as ws_err:
+                logger.warning(f"Workspace query fallback during init: {ws_err}")
+                default_ws = None
+
             if not default_ws:
-                default_ws = Workspace(id="default-workspace", name="Default Workspace")
-                session.add(default_ws)
-                await session.commit()
-                await session.refresh(default_ws)
+                try:
+                    default_ws = Workspace(id=default_ws_id, name="Default Workspace")
+                    session.add(default_ws)
+                    await session.commit()
+                    await session.refresh(default_ws)
+                except Exception as create_err:
+                    logger.warning(f"Workspace creation fallback: {create_err}")
 
             # Create new user with workspace_id assigned upfront
             user = User(
@@ -136,7 +145,7 @@ async def get_current_user(
                 full_name=decoded_token.get("name", "") or "Developer",
                 avatar_url=decoded_token.get("picture"),
                 role="member",
-                workspace_id=default_ws.id,
+                workspace_id=default_ws_id,
             )
             session.add(user)
             await session.commit()
@@ -155,15 +164,7 @@ async def get_current_user(
                 changed = True
 
             if not user.workspace_id:
-                from app.models.workspace import Workspace
-                ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
-                default_ws = ws_res.scalars().first()
-                if not default_ws:
-                    default_ws = Workspace(id="default-workspace", name="Default Workspace")
-                    session.add(default_ws)
-                    await session.commit()
-                    await session.refresh(default_ws)
-                user.workspace_id = default_ws.id
+                user.workspace_id = "default-workspace"
                 changed = True
 
             if changed:
