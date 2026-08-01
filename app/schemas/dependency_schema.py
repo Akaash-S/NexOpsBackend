@@ -38,6 +38,8 @@ class TopologyNode(BaseSchema):
     activity: float
     owner: Optional[str] = None
     noisy_rule_ids: list[str] = []
+    has_active_incident: bool = False
+    active_incident_title: Optional[str] = None
 
 
 class TopologyEdge(BaseSchema):

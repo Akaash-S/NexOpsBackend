@@ -33,7 +33,8 @@ async def list_incidents(
     query = select(Incident).where(
         (Incident.workspace_id == user.workspace_id) | 
         (Incident.workspace_id == None) | 
-        (Incident.workspace_id == "")
+        (Incident.workspace_id == "") |
+        (Incident.workspace_id == "default-workspace")
     )
     if status:
         query = query.where(Incident.status == status)
@@ -61,10 +62,22 @@ async def list_incidents(
         for inc in incidents:
             inc_dict = inc.model_dump()
             inc_dict["candidate_causes"] = causes_by_incident[inc.id]
+            
+            # Dynamically estimate affected_users if 0
+            if not inc_dict.get("affected_users"):
+                base_u = 250 if inc.severity == "critical" else (100 if inc.severity == "high" else 35)
+                mult_u = max(1, len(inc.impacted_repos or []) + 1)
+                inc_dict["affected_users"] = base_u * mult_u
+                
             response_incidents.append(inc_dict)
     else:
         for inc in incidents:
-            response_incidents.append(inc.model_dump())
+            inc_dict = inc.model_dump()
+            if not inc_dict.get("affected_users"):
+                base_u = 250 if inc.severity == "critical" else (100 if inc.severity == "high" else 35)
+                mult_u = max(1, len(inc.impacted_repos or []) + 1)
+                inc_dict["affected_users"] = base_u * mult_u
+            response_incidents.append(inc_dict)
 
     return response_incidents
 

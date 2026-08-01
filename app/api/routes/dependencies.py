@@ -55,28 +55,75 @@ async def get_topology(
         if d.source_repo_id in repo_ids and d.target_repo_id in repo_ids
     ]
 
-    # Build a set of failing repo IDs for cascade highlighting
-    failing_ids = {r.id for r in repos if r.ci_status == "failing"}
+    # Fetch active incidents in workspace (or default-workspace)
+    from app.models.incident import Incident
+    from app.models.candidate_cause import CandidateCause
+
+    inc_query = select(Incident).where(
+        Incident.status.in_(["open", "investigating"]),
+        (Incident.workspace_id == current_user.workspace_id) |
+        (Incident.workspace_id == None) |
+        (Incident.workspace_id == "") |
+        (Incident.workspace_id == "default-workspace")
+    )
+    inc_result = await session.execute(inc_query)
+    active_incidents = list(inc_result.scalars().all())
+
+    # Map active incidents to affected repos & map incident titles
+    incident_repo_map: dict[str, str] = {}
+    active_inc_ids = [inc.id for inc in active_incidents]
+
+    for inc in active_incidents:
+        if inc.root_cause_repo_id:
+            incident_repo_map[inc.root_cause_repo_id] = inc.title
+        for imp_id in (inc.impacted_repos or []):
+            if imp_id not in incident_repo_map:
+                incident_repo_map[imp_id] = inc.title
+
+    if active_inc_ids:
+        cc_res = await session.execute(
+            select(CandidateCause).where(CandidateCause.incident_id.in_(active_inc_ids))
+        )
+        for cc in cc_res.scalars().all():
+            if cc.repo_id and cc.repo_id not in incident_repo_map:
+                # Find matching incident title
+                matching_inc = next((i for i in active_incidents if i.id == cc.incident_id), None)
+                if matching_inc:
+                    incident_repo_map[cc.repo_id] = matching_inc.title
+
+    active_incident_repo_ids = set(incident_repo_map.keys())
+
+    # Build a set of failing/incident repo IDs for cascade highlighting
+    failing_ids = {r.id for r in repos if r.ci_status == "failing" or r.id in active_incident_repo_ids}
 
     from app.services.alert_service import get_noisy_rules
 
     nodes = []
     for r in repos:
         noisy_rules = await get_noisy_rules(session, r.id)
+        has_inc = r.id in active_incident_repo_ids
+        inc_title = incident_repo_map.get(r.id)
+
+        # Drop effective health score if there's an active incident
+        effective_health = min(r.health_score, 45.0) if has_inc else r.health_score
+        effective_ci = "failing" if has_inc else r.ci_status
+
         nodes.append(
             TopologyNode(
                 id=r.id,
                 name=r.name,
                 platform=r.platform,
-                status=getattr(r, "status", "active"),
+                status="critical" if has_inc else getattr(r, "status", "active"),
                 language=r.language,
-                health_score=r.health_score,
-                ci_status=r.ci_status,
+                health_score=effective_health,
+                ci_status=effective_ci,
                 open_issues=r.open_issues,
                 vulnerabilities=r.vulnerabilities,
                 activity=r.activity,
                 owner=r.owner,
                 noisy_rule_ids=noisy_rules,
+                has_active_incident=has_inc,
+                active_incident_title=inc_title,
             )
         )
 
@@ -86,8 +133,8 @@ async def get_topology(
             source=d.source_repo_id,
             target=d.target_repo_id,
             label=d.label,
-            # Edge is broken if the target repo (upstream) is failing
-            is_broken=d.target_repo_id in failing_ids,
+            # Edge is broken if target repo (upstream) OR source repo is failing/has incident
+            is_broken=(d.target_repo_id in failing_ids or d.source_repo_id in failing_ids),
         )
         for d in scoped_deps
     ]
