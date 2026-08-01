@@ -210,6 +210,7 @@ START_TIME = datetime.utcnow()
 
 
 @app.get("/health", tags=["System"])
+@app.get(f"{settings.API_PREFIX}/health", tags=["System"])
 @limiter.exempt
 async def health_check():
     """
@@ -243,6 +244,7 @@ async def health_check():
 
 
 @app.get("/health/detailed", tags=["System"])
+@app.get(f"{settings.API_PREFIX}/health/detailed", tags=["System"])
 @limiter.exempt
 async def health_check_detailed(user=Depends(get_current_user)):
     """
