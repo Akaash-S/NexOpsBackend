@@ -107,6 +107,9 @@ class PagerDutyService:
         """
         Delete a webhook subscription on PagerDuty. Best-effort deletion.
         """
+        if not subscription_id or subscription_id.startswith("local-dev"):
+            logger.info(f"Skipping external PagerDuty deletion for local/dummy subscription_id: {subscription_id}")
+            return True
         logger.info(f"Deleting PagerDuty webhook subscription (ID: {subscription_id})...")
         try:
             async with httpx.AsyncClient() as client:
@@ -116,7 +119,7 @@ class PagerDutyService:
                     timeout=10.0
                 )
                 logger.info(f"PagerDuty webhook deletion response status: {response.status_code}")
-                if response.status_code in (200, 204):
+                if response.status_code in (200, 204, 404):
                     logger.info("Successfully deleted PagerDuty webhook subscription")
                     return True
                 else:

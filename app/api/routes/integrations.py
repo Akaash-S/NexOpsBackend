@@ -805,6 +805,7 @@ async def connect_pagerduty(
 
 
 @router.delete("/integrations/pagerduty/disconnect")
+@router.post("/integrations/pagerduty/disconnect")
 async def disconnect_pagerduty(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
