@@ -110,21 +110,40 @@ async def get_current_user(
         result = await session.execute(select(User).where(User.id == uid))
         user = result.scalars().first()
 
+        email = decoded_token.get("email", "")
+        if not user and email:
+            # Check if user exists by email to prevent UniqueViolationError on email constraint
+            email_result = await session.execute(select(User).where(User.email == email))
+            user = email_result.scalars().first()
+            if user:
+                logger.info(f"Matched existing user record by email ({email}): ID={user.id}")
+
         if not user:
-            # Create user — always with role "member" regardless of environment
+            # Ensure default workspace exists before instantiating User
+            from app.models.workspace import Workspace
+            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
+            default_ws = ws_res.scalars().first()
+            if not default_ws:
+                default_ws = Workspace(id="default-workspace", name="Default Workspace")
+                session.add(default_ws)
+                await session.commit()
+                await session.refresh(default_ws)
+
+            # Create new user with workspace_id assigned upfront
             user = User(
                 id=uid,
-                email=decoded_token.get("email", ""),
-                full_name=decoded_token.get("name", ""),
+                email=email,
+                full_name=decoded_token.get("name", "") or "Developer",
                 avatar_url=decoded_token.get("picture"),
                 role="member",
+                workspace_id=default_ws.id,
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
             logger.info(f"Created new database record for user: {uid}")
         else:
-            # Update display fields if they changed — never touch role here
+            # Update display fields if they changed
             changed = False
             name = decoded_token.get("name")
             picture = decoded_token.get("picture")
@@ -135,26 +154,22 @@ async def get_current_user(
                 user.avatar_url = picture
                 changed = True
 
+            if not user.workspace_id:
+                from app.models.workspace import Workspace
+                ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
+                default_ws = ws_res.scalars().first()
+                if not default_ws:
+                    default_ws = Workspace(id="default-workspace", name="Default Workspace")
+                    session.add(default_ws)
+                    await session.commit()
+                    await session.refresh(default_ws)
+                user.workspace_id = default_ws.id
+                changed = True
+
             if changed:
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)
-
-        # Ensure user has a workspace_id assigned
-        if not user.workspace_id:
-            from app.models.workspace import Workspace
-            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
-            default_ws = ws_res.scalars().first()
-            if not default_ws:
-                default_ws = Workspace(id="default-workspace", name="Default Workspace")
-                session.add(default_ws)
-                await session.commit()
-                await session.refresh(default_ws)
-
-            user.workspace_id = default_ws.id
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
 
         # Store in Redis-backed cache (cross-process, TTL-expiring)
         await _set_user_in_cache(uid, user.model_dump(mode="json"))
