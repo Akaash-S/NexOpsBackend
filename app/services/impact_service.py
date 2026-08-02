@@ -234,15 +234,13 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     reasons = ["Base score (+15.0)"]
     
     # Same-Repo Incidents (Last 7 Days)
+    # Only the active/open signal is intentional — resolved incidents are excluded
+    # (7-day resolved-incident factor was unattributed; removed per decision 2026-08-02)
     has_active_same = any(inc.status == "open" for inc in same_repo_incidents)
-    has_resolved_same = any(inc.status == "resolved" for inc in same_repo_incidents)
     
     if has_active_same:
         score += 35.0
         reasons.append("Active open incident on same repository (+35.0)")
-    if has_resolved_same:
-        score += 15.0
-        reasons.append("Resolved incident on same repository in last 7 days (+15.0)")
         
     # Temporal proximity to most recent incident on the repo
     if same_repo_incidents:
@@ -260,15 +258,13 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
             reasons.append("Temporal proximity to same-repo incident within 120 min (+5.0)")
             
     # Downstream Dependent Incidents (Last 7 Days)
+    # Only the active/open signal is intentional — resolved downstream incidents are excluded
+    # (7-day resolved-downstream factor was unattributed; removed per decision 2026-08-02)
     has_active_downstream = any(inc.status == "open" for inc in downstream_incidents)
-    has_resolved_downstream = any(inc.status == "resolved" for inc in downstream_incidents)
     
     if has_active_downstream:
         score += 20.0
         reasons.append("Active open incident on downstream dependent repository (+20.0)")
-    if has_resolved_downstream:
-        score += 10.0
-        reasons.append("Resolved incident on downstream dependent repository in last 7 days (+10.0)")
         
     # Past Confirmed Root Causes (Last 90 Days)
     if confirmed_causes:

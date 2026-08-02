@@ -176,10 +176,6 @@ async def get_or_create_incident(
     Find an existing open incident for the same repository within the last 30 mins, 
     or create a new one, protected by an advisory lock.
     """
-    # Use repo_id hash as advisory lock key to prevent concurrent creation
-    lock_key = int(hashlib.md5(repo_id.encode()).hexdigest(), 16) % (2**31 - 1)
-    await session.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
-
     # Check for existing open incident for this repository
     thirty_mins_ago = datetime.utcnow() - timedelta(minutes=30)
     query = select(Incident).where(
@@ -223,7 +219,6 @@ async def get_or_create_incident(
     )
     session.add(new_incident)
     await session.flush()
-    await session.refresh(new_incident)
     
     # Perform cause correlation scoring
     await correlate_incident_causes(session, new_incident)
