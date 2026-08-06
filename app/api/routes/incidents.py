@@ -30,16 +30,17 @@ async def list_incidents(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    query = select(Incident).where(
-        (Incident.workspace_id == user.workspace_id) | 
-        (Incident.workspace_id == None) | 
-        (Incident.workspace_id == "") |
-        (Incident.workspace_id == "default-workspace")
-    )
-    if status:
-        query = query.where(Incident.status == status)
-    if cluster_id:
-        query = query.where(Incident.cluster_id == cluster_id)
+    if not user or not user.workspace_id:
+        return []
+
+    actual_status = None if hasattr(status, "default") else status
+    actual_cluster = None if hasattr(cluster_id, "default") else cluster_id
+
+    query = select(Incident).where(Incident.workspace_id == user.workspace_id)
+    if actual_status:
+        query = query.where(Incident.status == actual_status)
+    if actual_cluster:
+        query = query.where(Incident.cluster_id == actual_cluster)
     query = query.order_by(Incident.created_at.desc())
     result = await session.execute(query)
     incidents = list(result.scalars().all())
@@ -70,14 +71,6 @@ async def list_incidents(
                 inc_dict["affected_users"] = base_u * mult_u
                 
             response_incidents.append(inc_dict)
-    else:
-        for inc in incidents:
-            inc_dict = inc.model_dump()
-            if not inc_dict.get("affected_users"):
-                base_u = 250 if inc.severity == "critical" else (100 if inc.severity == "high" else 35)
-                mult_u = max(1, len(inc.impacted_repos or []) + 1)
-                inc_dict["affected_users"] = base_u * mult_u
-            response_incidents.append(inc_dict)
 
     return response_incidents
 
@@ -88,25 +81,10 @@ async def get_incident(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    # Verify ownership with workspace fallback
-    incident_result = await session.execute(
-        select(Incident)
-        .where(
-            Incident.id == incident_id,
-            (Incident.workspace_id == user.workspace_id) | 
-            (Incident.workspace_id == None) | 
-            (Incident.workspace_id == "") |
-            (Incident.workspace_id == "ws-a7-demo")
-        )
-    )
-    incident = incident_result.scalar_one_or_none()
-    if not incident:
-        # Fallback query by ID directly if user is authenticated
-        inc_direct = await session.get(Incident, incident_id)
-        if inc_direct:
-            incident = inc_direct
-        else:
-            raise HTTPException(status_code=404, detail="Incident not found")
+    # Verify ownership strictly by workspace_id
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Incident not found")
 
     cc_result = await session.execute(
         select(CandidateCause).where(CandidateCause.incident_id == incident.id)
@@ -123,12 +101,8 @@ async def resolve_incident(
     user = Depends(get_current_user)
 ):
     # Verify ownership
-    incident_result = await session.execute(
-        select(Incident)
-        .where(Incident.id == incident_id)
-    )
-    incident = incident_result.scalar_one_or_none()
-    if not incident:
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Incident not found")
 
     from app.services.incident_service import resolve_incident as resolve_logic
@@ -152,12 +126,9 @@ async def submit_feedback(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
-    # 1. Fetch incident
-    incident_result = await session.execute(
-        select(Incident).where(Incident.id == incident_id)
-    )
-    incident = incident_result.scalar_one_or_none()
-    if not incident:
+    # 1. Fetch incident and verify ownership
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Incident not found")
         
     # 2. Fetch candidate cause
@@ -171,7 +142,7 @@ async def submit_feedback(
     if not target_cause:
         raise HTTPException(status_code=404, detail="Candidate cause not found for this incident")
         
-    # 3. Update confirmation state (fast cache on CandidateCause)
+    # 3. Update confirmation state
     target_cause.confirmed = feedback.confirmed
     target_cause.confirmed_by = user.id
     target_cause.updated_at = datetime.utcnow()
@@ -180,7 +151,7 @@ async def submit_feedback(
     # Insert immutable ledger entry for this decision
     from app.models.candidate_cause_feedback_log import CandidateCauseFeedbackLog
     log_entry = CandidateCauseFeedbackLog(
-        workspace_id=incident.workspace_id or user.workspace_id,
+        workspace_id=user.workspace_id,
         candidate_cause_id=target_cause.id,
         incident_id=incident.id,
         repo_id=target_cause.repo_id,
@@ -208,7 +179,7 @@ async def submit_feedback(
             session.add(other)
 
             other_log = CandidateCauseFeedbackLog(
-                workspace_id=incident.workspace_id or user.workspace_id,
+                workspace_id=user.workspace_id,
                 candidate_cause_id=other.id,
                 incident_id=incident.id,
                 repo_id=other.repo_id,
@@ -273,23 +244,15 @@ async def get_postmortem(
     Fetch the postmortem for an incident.
     Auto-creates an empty draft on first access so the editor can open immediately.
     """
-    # Verify incident ownership
-    inc_result = await session.execute(
-        select(Incident).where(
-            Incident.id == incident_id,
-            (Incident.workspace_id == user.workspace_id) |
-            (Incident.workspace_id == None) |
-            (Incident.workspace_id == "")
-        )
-    )
-    incident = inc_result.scalar_one_or_none()
-    if not incident:
-        incident = await session.get(Incident, incident_id)
-        if not incident:
-            raise HTTPException(status_code=404, detail="Incident not found")
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Incident not found")
 
     pm_result = await session.execute(
-        select(Postmortem).where(Postmortem.incident_id == incident_id)
+        select(Postmortem).where(
+            Postmortem.incident_id == incident_id,
+            Postmortem.workspace_id == user.workspace_id
+        )
     )
     pm = pm_result.scalar_one_or_none()
 
@@ -306,7 +269,7 @@ async def get_postmortem(
 
         pm = Postmortem(
             incident_id=incident_id,
-            workspace_id=incident.workspace_id or user.workspace_id,
+            workspace_id=user.workspace_id,
             author_id=user.id,
             root_cause=prefill_root_cause,
             status="draft",
@@ -330,19 +293,22 @@ async def upsert_postmortem(
     Update (partial) postmortem fields — acts as an auto-save endpoint.
     Any field set to None in the request body is left unchanged.
     """
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
     pm_result = await session.execute(
-        select(Postmortem).where(Postmortem.incident_id == incident_id)
+        select(Postmortem).where(
+            Postmortem.incident_id == incident_id,
+            Postmortem.workspace_id == user.workspace_id
+        )
     )
     pm = pm_result.scalar_one_or_none()
 
     if not pm:
-        # Trigger auto-create via the GET endpoint logic inline
-        inc = await session.get(Incident, incident_id)
-        if not inc:
-            raise HTTPException(status_code=404, detail="Incident not found")
         pm = Postmortem(
             incident_id=incident_id,
-            workspace_id=inc.workspace_id or user.workspace_id,
+            workspace_id=user.workspace_id,
             author_id=user.id,
             status="draft",
         )
@@ -369,8 +335,15 @@ async def publish_postmortem(
     """
     Mark the postmortem as published. Requires summary and root_cause to be non-empty.
     """
+    incident = await session.get(Incident, incident_id)
+    if not incident or incident.workspace_id != user.workspace_id:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
     pm_result = await session.execute(
-        select(Postmortem).where(Postmortem.incident_id == incident_id)
+        select(Postmortem).where(
+            Postmortem.incident_id == incident_id,
+            Postmortem.workspace_id == user.workspace_id
+        )
     )
     pm = pm_result.scalar_one_or_none()
     if not pm:

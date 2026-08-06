@@ -23,29 +23,20 @@ async def get_current_workspace(
 ):
     """Fetch active workspace configuration for the authenticated user."""
     try:
-        if not user.workspace_id:
-            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
-            workspace = ws_res.scalars().first()
-            if not workspace:
-                workspace = Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
-                session.add(workspace)
-                await session.commit()
-                await session.refresh(workspace)
-            user.workspace_id = workspace.id
-            session.add(user)
-            await session.commit()
-            return workspace
-
-        result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
+        user_ws_id = user.workspace_id or f"ws-{user.id[:12]}"
+        result = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
         workspace = result.scalars().first()
         if not workspace:
-            ws_res = await session.execute(select(Workspace).where(Workspace.id == "default-workspace"))
-            workspace = ws_res.scalars().first()
-            if not workspace:
-                workspace = Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
-                session.add(workspace)
-                await session.commit()
-                await session.refresh(workspace)
+            workspace = Workspace(
+                id=user_ws_id, 
+                name=f"{user.full_name or 'User'}'s Workspace", 
+                show_extended_navigation=True
+            )
+            session.add(workspace)
+            await session.commit()
+            await session.refresh(workspace)
+
+        if user.workspace_id != workspace.id:
             user.workspace_id = workspace.id
             session.add(user)
             await session.commit()
@@ -54,7 +45,8 @@ async def get_current_workspace(
     except Exception as e:
         import logging
         logging.getLogger("nexops").error(f"Error fetching current workspace for user {user.id}: {e}", exc_info=True)
-        return Workspace(id="default-workspace", name="Default Workspace", show_extended_navigation=True)
+        fallback_id = user.workspace_id or f"ws-{user.id[:12]}"
+        return Workspace(id=fallback_id, name="Personal Workspace", show_extended_navigation=True)
 
 
 @router.patch("/current", response_model=WorkspaceResponse)

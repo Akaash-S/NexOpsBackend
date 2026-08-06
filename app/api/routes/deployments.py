@@ -20,11 +20,16 @@ async def list_deployments(
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
+    if not user or not user.workspace_id:
+        return []
+    actual_repo = None if hasattr(repo_id, "default") else repo_id
+    actual_env = None if hasattr(environment, "default") else environment
+
     query = select(Deployment).where(Deployment.workspace_id == user.workspace_id)
-    if repo_id:
-        query = query.where(Deployment.repo_id == repo_id)
-    if environment:
-        query = query.where(Deployment.environment == environment)
+    if actual_repo:
+        query = query.where(Deployment.repo_id == actual_repo)
+    if actual_env:
+        query = query.where(Deployment.environment == actual_env)
     query = query.order_by(Deployment.deployed_at.desc())
     result = await session.execute(query)
     return list(result.scalars().all())
@@ -32,7 +37,7 @@ async def list_deployments(
 @router.post("", response_model=DeploymentResponse, status_code=201)
 async def trigger_deployment(
     data: DeploymentCreate,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks = None,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user)
 ):
@@ -40,6 +45,9 @@ async def trigger_deployment(
     Simulate a deployment trigger. 
     Creates a deployment record and an associated event.
     """
+    if not user or not user.workspace_id:
+        raise HTTPException(status_code=403, detail="Workspace membership required")
+
     from app.models.repo import Repo
     repo = await session.get(Repo, data.repo_id)
     if not repo or repo.workspace_id != user.workspace_id:
@@ -85,7 +93,8 @@ async def trigger_deployment(
     # Trigger automation in background
     from app.api.routes.events import _run_automation
     event = await create_event(session, event_data)
-    background_tasks.add_task(_run_automation, event.id)
+    if background_tasks:
+        background_tasks.add_task(_run_automation, event.id)
     
     await session.commit()
     return deployment

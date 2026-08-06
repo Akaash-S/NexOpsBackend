@@ -119,38 +119,38 @@ async def get_current_user(
                 logger.info(f"Matched existing user record by email ({email}): ID={user.id}")
 
         if not user:
-            # Ensure default workspace exists before instantiating User
+            # Create a unique personal workspace for new user
             from app.models.workspace import Workspace
-            default_ws_id = "default-workspace"
+            user_ws_id = f"ws-{uid[:12]}"
             try:
-                ws_res = await session.execute(select(Workspace).where(Workspace.id == default_ws_id))
-                default_ws = ws_res.scalars().first()
+                ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+                user_ws = ws_res.scalars().first()
             except Exception as ws_err:
                 logger.warning(f"Workspace query fallback during init: {ws_err}")
-                default_ws = None
+                user_ws = None
 
-            if not default_ws:
+            if not user_ws:
                 try:
-                    default_ws = Workspace(id=default_ws_id, name="Default Workspace")
-                    session.add(default_ws)
-                    await session.commit()
-                    await session.refresh(default_ws)
+                    user_name = decoded_token.get("name", "") or "Developer"
+                    user_ws = Workspace(id=user_ws_id, name=f"{user_name}'s Workspace", color="blue")
+                    session.add(user_ws)
+                    await session.flush()
                 except Exception as create_err:
                     logger.warning(f"Workspace creation fallback: {create_err}")
 
-            # Create new user with workspace_id assigned upfront
+            # Create new user with unique workspace_id assigned upfront
             user = User(
                 id=uid,
                 email=email,
                 full_name=decoded_token.get("name", "") or "Developer",
                 avatar_url=decoded_token.get("picture"),
                 role="member",
-                workspace_id=default_ws_id,
+                workspace_id=user_ws_id,
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
-            logger.info(f"Created new database record for user: {uid}")
+            logger.info(f"Created new database record with unique workspace {user_ws_id} for user: {uid}")
         else:
             # Update display fields if they changed
             changed = False
@@ -164,7 +164,15 @@ async def get_current_user(
                 changed = True
 
             if not user.workspace_id:
-                user.workspace_id = "default-workspace"
+                from app.models.workspace import Workspace
+                user_ws_id = f"ws-{uid[:12]}"
+                ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+                user_ws = ws_res.scalars().first()
+                if not user_ws:
+                    user_ws = Workspace(id=user_ws_id, name=f"{user.full_name or 'User'}'s Workspace", color="blue")
+                    session.add(user_ws)
+                    await session.flush()
+                user.workspace_id = user_ws_id
                 changed = True
 
             if changed:

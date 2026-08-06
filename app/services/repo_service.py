@@ -36,12 +36,13 @@ async def get_repos(
     limit: int = 50,
     offset: int = 0,
 ) -> List[Repo]:
-    """Fetch repositories, optionally filtered by user, workspace, cluster, and/or platform."""
-    query = select(Repo)
+    """Fetch repositories, strictly requiring and filtering by workspace_id."""
+    if not workspace_id:
+        return []
+
+    query = select(Repo).where(Repo.workspace_id == workspace_id)
     if user_id:
         query = query.where(Repo.user_id == user_id)
-    if workspace_id:
-        query = query.where(Repo.workspace_id == workspace_id)
     if cluster_id:
         query = query.where(Repo.cluster_id == cluster_id)
     if platform:

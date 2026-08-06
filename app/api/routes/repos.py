@@ -29,14 +29,22 @@ async def list_repos(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """List repositories, optionally filtered by workspace or cluster, scoped to the current user."""
+    """List repositories, strictly scoped to the authenticated user's workspace."""
+    if not user.workspace_id:
+        return []
+
+    actual_limit = 50 if hasattr(limit, "default") else limit
+    actual_offset = 0 if hasattr(offset, "default") else offset
+    actual_cluster = None if hasattr(cluster_id, "default") else cluster_id
+    actual_platform = None if hasattr(platform, "default") else platform
+
     return await repo_service.get_repos(
         session,
         workspace_id=user.workspace_id,
-        cluster_id=cluster_id,
-        platform=platform,
-        limit=limit,
-        offset=offset,
+        cluster_id=actual_cluster,
+        platform=actual_platform,
+        limit=actual_limit,
+        offset=actual_offset,
     )
 
 
@@ -47,7 +55,10 @@ async def search_repos(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Search repositories by name, description, or language, scoped to the current user."""
+    """Search repositories by name, description, or language, strictly scoped to the authenticated user's workspace."""
+    if not user.workspace_id:
+        return []
+    actual_limit = 20 if hasattr(limit, "default") else limit
     search_term = f"%{q}%"
     query = select(Repo).where(
         Repo.workspace_id == user.workspace_id,
@@ -57,7 +68,7 @@ async def search_repos(
             Repo.language.ilike(search_term),
             Repo.platform.ilike(search_term)
         )
-    ).limit(limit)
+    ).limit(actual_limit)
     
     result = await session.execute(query)
     return list(result.scalars().all())
@@ -69,7 +80,9 @@ async def get_repo(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Get a single repository by ID, verifying user ownership."""
+    """Get a single repository by ID, verifying user workspace ownership."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
     repo = await repo_service.get_repo_by_id(session, repo_id)
     if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -82,7 +95,9 @@ async def create_repo(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Register a new repository to track, owned by the current user."""
+    """Register a new repository to track, owned by the current user's workspace."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=403, detail="Workspace membership required to register repository")
     repo = Repo(
         name=data.name,
         platform=data.platform,
@@ -105,7 +120,9 @@ async def update_repo(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Update repository details, verifying user ownership."""
+    """Update repository details, verifying user workspace ownership."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
     old_repo = await repo_service.get_repo_by_id(session, repo_id)
     if not old_repo or old_repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -120,7 +137,9 @@ async def get_repo_blast_radius(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Calculate repository blast radius and risk score, verifying user ownership."""
+    """Calculate repository blast radius and risk score, verifying user workspace ownership."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
     repo = await repo_service.get_repo_by_id(session, repo_id)
     if not repo or repo.workspace_id != user.workspace_id:
         raise HTTPException(status_code=404, detail="Repository not found")
@@ -135,7 +154,9 @@ async def get_repo_tree(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Fetch live directory structure from the VCS provider, verifying user ownership."""
+    """Fetch live directory structure from the VCS provider, verifying user workspace ownership."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
     # Check cache first
     from app.core.redis import get_cached_data, set_cached_data
     cache_key = f"cache:repo:tree:{repo_id}:{path}"
@@ -180,7 +201,9 @@ async def get_file_content(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    """Fetch live file content from the VCS provider, verifying user ownership."""
+    """Fetch live file content from the VCS provider, verifying user workspace ownership."""
+    if not user.workspace_id:
+        raise HTTPException(status_code=404, detail="Repository not found")
     # Check cache first
     from app.core.redis import get_cached_data, set_cached_data
     cache_key = f"cache:repo:file:{repo_id}:{path}"
