@@ -138,6 +138,11 @@ async def get_current_user(
                 except Exception as create_err:
                     logger.warning(f"Workspace creation fallback: {create_err}")
 
+            # Check provider verification status (trusted OAuth vs unverified password)
+            provider_id = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+            is_firebase_verified = bool(decoded_token.get("email_verified", False))
+            is_trusted_oauth = provider_id in ("github.com", "google.com") and is_firebase_verified
+
             # Create new user with unique workspace_id assigned upfront
             user = User(
                 id=uid,
@@ -146,11 +151,12 @@ async def get_current_user(
                 avatar_url=decoded_token.get("picture"),
                 role="member",
                 workspace_id=user_ws_id,
+                email_verified=is_trusted_oauth,
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
-            logger.info(f"Created new database record with unique workspace {user_ws_id} for user: {uid}")
+            logger.info(f"Created new database record with unique workspace {user_ws_id} for user: {uid} (email_verified={is_trusted_oauth})")
         else:
             # Update display fields if they changed
             changed = False
@@ -161,6 +167,14 @@ async def get_current_user(
                 changed = True
             if picture and user.avatar_url != picture:
                 user.avatar_url = picture
+                changed = True
+
+            provider_id = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+            is_firebase_verified = bool(decoded_token.get("email_verified", False))
+            is_trusted_oauth = provider_id in ("github.com", "google.com") and is_firebase_verified
+
+            if is_trusted_oauth and not user.email_verified:
+                user.email_verified = True
                 changed = True
 
             if not user.workspace_id:
@@ -205,6 +219,20 @@ async def get_current_user(
 def get_uid(user: User = Security(get_current_user)) -> str:
     """Helper dependency to extract the user's UID from the verified User model."""
     return user.id
+
+
+async def verify_email_verified(user: User = Depends(get_current_user)) -> User:
+    """
+    Guard dependency that verifies the user's email address has been verified via OTP or trusted OAuth.
+    Raises HTTP 403 Forbidden with X-NexOps-Verification-Gate header if email is unverified.
+    """
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required. Please verify your email address to proceed.",
+            headers={"X-NexOps-Verification-Gate": "email_unverified"}
+        )
+    return user
 
 
 async def verify_extended_navigation(

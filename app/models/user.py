@@ -28,6 +28,7 @@ class User(SQLModel, table=True):
     pagerduty_access_token: Optional[str] = Field(default=None)
     pagerduty_webhook_secret: Optional[str] = Field(default=None)
     pagerduty_webhook_subscription_id: Optional[str] = Field(default=None)
+    email_verified: bool = Field(default=False)
     onboarding_completed: bool = Field(default=False)
     preferences: Optional[dict] = Field(
         default_factory=dict,

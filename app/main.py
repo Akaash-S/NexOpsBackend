@@ -149,8 +149,9 @@ async def global_unhandled_exception_handler(request, exc):
     )
 
 # ── Register API Routes ─────────────────────────────────────────────────
-from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, workspaces
+from app.api.routes import repos, events, alerts, insights, users, analytics, integrations, webhooks, dependencies, incidents, deployments, workspaces, auth
 
+app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(repos.router, prefix=settings.API_PREFIX)
 app.include_router(events.router, prefix=settings.API_PREFIX)
 app.include_router(alerts.router, prefix=settings.API_PREFIX)

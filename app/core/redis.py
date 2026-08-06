@@ -110,3 +110,8 @@ async def invalidate_cache_pattern(pattern: str) -> None:
     except Exception as e:
         logger.warning(f"Redis cache invalidation failed for pattern '{pattern}' (switching to in-memory): {e}")
         _use_in_memory = True
+
+async def delete_cached_data(key: str) -> None:
+    """Delete a single key from Redis and in-memory cache."""
+    await invalidate_cache_pattern(key)
+

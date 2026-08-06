@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from app.core.database import get_session
-from app.core.security import get_current_user, get_uid, invalidate_user_cache
+from app.core.security import get_current_user, get_uid, invalidate_user_cache, verify_email_verified
 from app.services.vcs_service import vcs_service
 from app.core.crypto import encrypt_secret
 from app.core.rate_limit import limiter
@@ -446,7 +446,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
 @router.post("/integrations/sync-manual")
 async def sync_vcs_repositories_manual(
     request: SyncRequest,
-    user = Depends(get_current_user),
+    user = Depends(verify_email_verified),
     session = Depends(get_session)
 ):
     """
@@ -457,7 +457,7 @@ async def sync_vcs_repositories_manual(
 @router.post("/integrations/sync")
 async def sync_vcs_repositories(
     request: SyncRequest,
-    user = Depends(get_current_user),
+    user = Depends(verify_email_verified),
     session = Depends(get_session)
 ):
     """
@@ -626,6 +626,7 @@ async def get_integration_status(
         latest_sync_at = ts.isoformat()  # e.g. "2026-08-01T18:14:00+00:00"
 
     return {
+        "email_verified": fresh_user.email_verified,
         "terms_acknowledged": terms_acknowledged,
         "github": {
             "connected": github_connected,
@@ -642,7 +643,7 @@ async def get_integration_status(
 
 @router.post("/integrations/terms/acknowledge")
 async def acknowledge_terms(
-    user: User = Depends(get_current_user),
+    user: User = Depends(verify_email_verified),
     session: AsyncSession = Depends(get_session),
 ):
     """Record one-time per-workspace acknowledgment of Terms of Service and Privacy Notice."""
@@ -672,7 +673,7 @@ async def acknowledge_terms(
 @router.get("/integrations/github/oauth-url")
 async def get_github_oauth_url(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(verify_email_verified),
     session: AsyncSession = Depends(get_session),
 ):
     """Return the GitHub OAuth URL as JSON so the frontend can redirect with auth."""
@@ -730,7 +731,7 @@ async def connect_pagerduty(
     request: Request,
     response: Response,
     payload: PagerDutyConnectRequest = Body(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(verify_email_verified),
     session: AsyncSession = Depends(get_session),
 ):
     """Validate API token, register a webhook subscription on PagerDuty, and store credentials."""
