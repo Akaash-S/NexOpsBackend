@@ -116,16 +116,21 @@ logger = logging.getLogger("nexops.integrations")
 class SyncRequest(BaseModel):
     provider: str
     token: str
-    workspace_id: str = Field(alias="workspaceId")
+    workspace_id: Optional[str] = Field(default=None, alias="workspaceId")
 
     class Config:
         validate_by_name = True
 
 async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession):
     try:
+        # Resolve target workspace: default to user's active workspace if unsupplied or empty
+        target_ws_id = request.workspace_id or user.workspace_id
+
         # Verify workspace ownership first before any token processing or external API calls
-        if not user.workspace_id or request.workspace_id != user.workspace_id:
+        if not user.workspace_id or target_ws_id != user.workspace_id:
             raise HTTPException(status_code=403, detail="Workspace access denied: user cannot sync to a mismatched workspace")
+
+        request.workspace_id = target_ws_id
 
         token = request.token
         if (not token or token == "use_stored_token") and request.provider == "github":
