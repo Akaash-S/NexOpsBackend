@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str
+    DATABASE_URL_DIRECT: Optional[str] = None
     MIGRATION_DATABASE_URL: Optional[str] = None
     STAGING_DATABASE_URL: Optional[str] = None
 
@@ -157,6 +158,12 @@ class Settings(BaseSettings):
     def direct_async_database_url(self) -> str:
         """Get direct (non-pooled) async database URL for production by removing '-pooler'."""
         return self.to_direct_async_url(self.DATABASE_URL)
+
+    @property
+    def direct_owner_async_database_url(self) -> str:
+        """Get direct async database URL using owner credentials (DATABASE_URL_DIRECT) for DDL migrations."""
+        url = self.DATABASE_URL_DIRECT or self.DATABASE_URL
+        return self.to_direct_async_url(url)
 
     @property
     def direct_async_migration_database_url(self) -> str:
