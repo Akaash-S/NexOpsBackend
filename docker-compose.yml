@@ -10,7 +10,7 @@ services:
       - API_PREFIX=${API_PREFIX:-/api/v1}
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@db:5432/nexops}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,https://nexops-frontend.vercel.app}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,https://nexops.asolvitra.tech}
       - FIREBASE_SERVICE_ACCOUNT_PATH=${FIREBASE_SERVICE_ACCOUNT_PATH:-./service-account.json}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}

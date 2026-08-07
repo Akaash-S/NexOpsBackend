@@ -108,7 +108,7 @@ configured_origins = settings.cors_origins_list if settings.CORS_ORIGINS else []
 default_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://nexops-frontend.vercel.app",
+    "https://nexops.asolvitra.tech",
 ]
 
 origins = list(dict.fromkeys(configured_origins + default_origins))

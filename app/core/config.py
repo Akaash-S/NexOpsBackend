@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: Optional[str] = None
 
     # Frontend URL (for OAuth callbacks and redirects)
-    # Must be set to the deployed frontend origin in production (e.g. https://nexops-frontend.vercel.app)
+    # Must be set to the deployed frontend origin in production (e.g. https://nexops.asolvitra.tech)
     FRONTEND_URL: str = "http://localhost:3000"
 
     # Gemini AI
