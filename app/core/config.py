@@ -58,12 +58,12 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
-    # Domain & Email Configuration
-    EMAIL_DOMAIN: str = "asolvitra.tech"
+    # Domain & Email Configuration (Loaded directly from environment variables / .env)
+    EMAIL_DOMAIN: Optional[str] = None
     RESEND_API_KEY: Optional[str] = None
-    RESEND_FROM_EMAIL: str = "NexOps <onboarding@resend.dev>"
+    RESEND_FROM_EMAIL: Optional[str] = None
 
-    # Email Sender Aliases per Channel (Loaded from .env if set, otherwise computed dynamically)
+    # Email Sender Aliases per Channel (Loaded directly from environment variables / .env)
     EMAIL_AUTH_SENDER: Optional[str] = None
     EMAIL_ALERTS_SENDER: Optional[str] = None
     EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
@@ -71,24 +71,32 @@ class Settings(BaseSettings):
     EMAIL_BILLING_SENDER: Optional[str] = None
 
     @property
+    def domain(self) -> str:
+        return self.EMAIL_DOMAIN or "asolvitra.tech"
+
+    @property
+    def resend_from_email(self) -> str:
+        return self.RESEND_FROM_EMAIL or "NexOps <onboarding@resend.dev>"
+
+    @property
     def auth_sender(self) -> str:
-        return self.EMAIL_AUTH_SENDER or f"NexOps Auth <nexops-auth@{self.EMAIL_DOMAIN}>"
+        return self.EMAIL_AUTH_SENDER or f"NexOps Auth <nexops-auth@{self.domain}>"
 
     @property
     def alerts_sender(self) -> str:
-        return self.EMAIL_ALERTS_SENDER or f"NexOps Alerts <nexops-alerts@{self.EMAIL_DOMAIN}>"
+        return self.EMAIL_ALERTS_SENDER or f"NexOps Alerts <nexops-alerts@{self.domain}>"
 
     @property
     def deployments_sender(self) -> str:
-        return self.EMAIL_DEPLOYMENTS_SENDER or f"NexOps Deployments <nexops-deployments@{self.EMAIL_DOMAIN}>"
+        return self.EMAIL_DEPLOYMENTS_SENDER or f"NexOps Deployments <nexops-deployments@{self.domain}>"
 
     @property
     def team_sender(self) -> str:
-        return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.EMAIL_DOMAIN}>"
+        return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.domain}>"
 
     @property
     def billing_sender(self) -> str:
-        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.EMAIL_DOMAIN}>"
+        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.domain}>"
 
     # SMTP Email Configuration
     SMTP_HOST: Optional[str] = None
