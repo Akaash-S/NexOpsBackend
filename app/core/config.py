@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # Frontend URL (for OAuth callbacks and redirects)
     # Must be set to the deployed frontend origin in production (e.g. https://nexops.asolvitra.tech)
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "https://nexops.asolvitra.tech"
 
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
