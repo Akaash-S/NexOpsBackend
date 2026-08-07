@@ -1,11 +1,12 @@
 """
 Email Service — Transactional Email Dispatcher for NexOps
-Sends OTP verification codes via SMTP (TLS/SSL) if SMTP credentials are configured.
+Dispatches OTP verification codes via Resend API (preferred) or SMTP (TLS/SSL fallback).
 """
 
 import smtplib
 import asyncio
 import logging
+import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from app.core.config import settings
@@ -13,12 +14,39 @@ from app.core.config import settings
 logger = logging.getLogger("nexops.email")
 
 
+async def _send_resend_async(to_email: str, subject: str, html_content: str, text_content: str) -> bool:
+    """Send transactional email using Resend REST API."""
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "from": settings.RESEND_FROM_EMAIL,
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content,
+        "text": text_content,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            res = await client.post(url, headers=headers, json=payload)
+            if res.status_code in (200, 201):
+                logger.info(f"Successfully sent OTP email to {to_email} via Resend API")
+                return True
+            else:
+                logger.error(f"Resend API error (HTTP {res.status_code}): {res.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Failed to send email to {to_email} via Resend API: {e}", exc_info=True)
+        return False
+
+
 def _send_smtp_sync(to_email: str, subject: str, html_content: str, text_content: str) -> bool:
     """Synchronous SMTP email delivery function executed in a worker thread."""
     if not settings.SMTP_HOST or not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.warning(
-            f"SMTP configuration missing (SMTP_HOST/SMTP_USER). Cannot dispatch email to {to_email}. "
-            f"Set SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in backend/.env to enable live email delivery."
+            f"SMTP configuration missing (SMTP_HOST/SMTP_USER). Cannot dispatch email to {to_email}."
         )
         return False
 
@@ -53,7 +81,7 @@ def _send_smtp_sync(to_email: str, subject: str, html_content: str, text_content
 async def send_otp_email(to_email: str, otp_code: str) -> bool:
     """
     Asynchronously dispatch a 6-digit OTP verification code to the target email address.
-    Runs SMTP sending in a background thread to prevent blocking the FastAPI event loop.
+    Uses Resend API if RESEND_API_KEY is configured, falling back to SMTP.
     """
     subject = f"{otp_code} is your NexOps verification code"
 
@@ -106,4 +134,14 @@ async def send_otp_email(to_email: str, otp_code: str) -> bool:
     </html>
     """
 
-    return await asyncio.to_thread(_send_smtp_sync, to_email, subject, html_content, text_content)
+    if settings.RESEND_API_KEY:
+        return await _send_resend_async(to_email, subject, html_content, text_content)
+
+    if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
+        return await asyncio.to_thread(_send_smtp_sync, to_email, subject, html_content, text_content)
+
+    logger.warning(
+        f"Neither RESEND_API_KEY nor SMTP credentials configured. Cannot dispatch email to {to_email}. "
+        f"Set RESEND_API_KEY in backend/.env to enable live email delivery."
+    )
+    return False

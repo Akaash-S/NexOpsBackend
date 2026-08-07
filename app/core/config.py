@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
+    # Resend Email API
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: str = "NexOps <onboarding@resend.dev>"
+
     # SMTP Email Configuration
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
