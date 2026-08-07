@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
+    # SMTP Email Configuration
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: str = "noreply@nexops.dev"
+    SMTP_TLS: bool = True
+
     @property
     def async_database_url(self) -> str:
         """Convert standard postgresql:// URL to asyncpg driver URL.

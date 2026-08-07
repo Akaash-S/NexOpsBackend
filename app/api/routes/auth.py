@@ -4,6 +4,7 @@ Provides OTP generation, hashing, rate-limiting, and verification for manual ema
 """
 
 import time
+import asyncio
 import secrets
 import string
 import hmac
@@ -137,7 +138,10 @@ async def request_email_otp(
     # Set resend cooldown indicator in Redis (TTL = 60 seconds)
     await set_cached_data(cooldown_key, {"cooldown": True}, ttl=_COOLDOWN_TTL_SECONDS)
 
-    # Log safe dispatch log (In local dev / test, code is logged for verification audit)
+    # Dispatch email via SMTP background task
+    from app.services.email_service import send_otp_email
+    asyncio.create_task(send_otp_email(email_clean, otp_code))
+
     logger.info(f"Generated 6-digit Email OTP for {email_clean} (Expires in 10m). Code: {otp_code}")
 
     return {
