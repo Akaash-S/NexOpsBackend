@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_EMAIL: str = "NexOps <onboarding@resend.dev>"
 
+    # Email Sender Aliases per Channel
+    EMAIL_AUTH_SENDER: str = "NexOps Auth <onboarding@resend.dev>"
+    EMAIL_ALERTS_SENDER: str = "NexOps Alerts <alerts@nexops.dev>"
+    EMAIL_DEPLOYMENTS_SENDER: str = "NexOps Deployments <deployments@nexops.dev>"
+    EMAIL_TEAM_SENDER: str = "NexOps Team <team@nexops.dev>"
+
     # SMTP Email Configuration
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
