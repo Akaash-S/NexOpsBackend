@@ -293,6 +293,12 @@ async def send_deployment_alert_email(to_email: str, repo_name: str, commit_sha:
 
 async def send_workspace_invite_email(to_email: str, workspace_name: str, invite_url: str) -> bool:
     """4. Team Channel: Dispatches Amazon/AWS-style Team Workspace Invitation."""
+    if "vercel.app" in invite_url or "localhost" in invite_url:
+        invite_url = invite_url.replace("https://nexops-frontend.vercel.app", settings.FRONTEND_URL).replace("http://localhost:3000", settings.FRONTEND_URL)
+
+    if not invite_url.startswith("http"):
+        invite_url = f"{settings.FRONTEND_URL.rstrip('/')}/{invite_url.lstrip('/')}"
+
     subject = f"You've been invited to join {workspace_name} on NexOps"
     text_content = f"You have been invited to join {workspace_name}. Click to accept: {invite_url}"
 
