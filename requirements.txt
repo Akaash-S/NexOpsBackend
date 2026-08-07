@@ -15,6 +15,7 @@ redis
 # Validation & Serialization
 pydantic
 pydantic-settings
+email-validator>=2.0.0
 
 # Utilities
 python-dateutil

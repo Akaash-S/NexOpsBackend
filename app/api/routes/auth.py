@@ -9,8 +9,9 @@ import string
 import hmac
 import hashlib
 import logging
+import re
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, field_validator
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -61,13 +62,32 @@ def _hash_otp(email: str, code: str) -> str:
     ).hexdigest()
 
 
+EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
+
+
 class OTPRequest(BaseModel):
-    email: EmailStr
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v or not EMAIL_REGEX.match(v):
+            raise ValueError("Invalid email address format.")
+        return v
 
 
 class OTPVerifyRequest(BaseModel):
-    email: EmailStr
+    email: str
     code: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v or not EMAIL_REGEX.match(v):
+            raise ValueError("Invalid email address format.")
+        return v
 
 
 @router.post("/otp/request")
