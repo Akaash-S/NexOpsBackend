@@ -114,12 +114,12 @@ async def send_otp_email(to_email: str, otp_code: str) -> bool:
     </body>
     </html>
     """
-    from_sender = getattr(settings, "EMAIL_AUTH_SENDER", settings.RESEND_FROM_EMAIL)
+    from_sender = settings.auth_sender
     return await send_email(to_email, subject, html_content, text_content, from_email=from_sender)
 
 
 async def send_incident_alert_email(to_email: str, incident_title: str, root_cause_summary: str, severity: str = "P1") -> bool:
-    """2. Alerts Channel: Dispatches P1 Incident & Root Cause Diagnosis (from: alerts@yourdomain.com)."""
+    """2. Alerts Channel: Dispatches P1 Incident & Root Cause Diagnosis (from: nexops-alerts@asolvitra.tech)."""
     subject = f"[{severity} Alert] {incident_title}"
     text_content = f"Incident Alert: {incident_title}\nSeverity: {severity}\nRoot Cause: {root_cause_summary}"
     html_content = f"""
@@ -137,12 +137,12 @@ async def send_incident_alert_email(to_email: str, incident_title: str, root_cau
     </body>
     </html>
     """
-    from_sender = getattr(settings, "EMAIL_ALERTS_SENDER", "NexOps Alerts <alerts@nexops.dev>")
+    from_sender = settings.alerts_sender
     return await send_email(to_email, subject, html_content, text_content, from_email=from_sender)
 
 
 async def send_deployment_alert_email(to_email: str, repo_name: str, commit_sha: str, status_msg: str) -> bool:
-    """3. Deployments Channel: Dispatches CI/CD Build & Deployment status (from: deployments@yourdomain.com)."""
+    """3. Deployments Channel: Dispatches CI/CD Build & Deployment status (from: nexops-deployments@asolvitra.tech)."""
     subject = f"[Deploy Notification] {repo_name} ({commit_sha[:7]})"
     text_content = f"Deployment notification for {repo_name} ({commit_sha}): {status_msg}"
     html_content = f"""
@@ -156,12 +156,12 @@ async def send_deployment_alert_email(to_email: str, repo_name: str, commit_sha:
     </body>
     </html>
     """
-    from_sender = getattr(settings, "EMAIL_DEPLOYMENTS_SENDER", "NexOps Deployments <deployments@nexops.dev>")
+    from_sender = settings.deployments_sender
     return await send_email(to_email, subject, html_content, text_content, from_email=from_sender)
 
 
 async def send_workspace_invite_email(to_email: str, workspace_name: str, invite_url: str) -> bool:
-    """4. Team Channel: Dispatches Team Invites (from: team@yourdomain.com)."""
+    """4. Team Channel: Dispatches Team Invites (from: nexops-team@asolvitra.tech)."""
     subject = f"You've been invited to join {workspace_name} on NexOps"
     text_content = f"You have been invited to join {workspace_name}. Click to accept: {invite_url}"
     html_content = f"""
@@ -176,5 +176,5 @@ async def send_workspace_invite_email(to_email: str, workspace_name: str, invite
     </body>
     </html>
     """
-    from_sender = getattr(settings, "EMAIL_TEAM_SENDER", "NexOps Team <team@nexops.dev>")
+    from_sender = settings.team_sender
     return await send_email(to_email, subject, html_content, text_content, from_email=from_sender)

@@ -58,22 +58,44 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
-    # Resend Email API
+    # Domain & Email Configuration
+    EMAIL_DOMAIN: str = "asolvitra.tech"
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_EMAIL: str = "NexOps <onboarding@resend.dev>"
 
-    # Email Sender Aliases per Channel (Defaults to onboarding@resend.dev during testing mode)
-    EMAIL_AUTH_SENDER: str = "NexOps Auth <onboarding@resend.dev>"
-    EMAIL_ALERTS_SENDER: str = "NexOps Alerts <onboarding@resend.dev>"
-    EMAIL_DEPLOYMENTS_SENDER: str = "NexOps Deployments <onboarding@resend.dev>"
-    EMAIL_TEAM_SENDER: str = "NexOps Team <onboarding@resend.dev>"
+    # Email Sender Aliases per Channel (Loaded from .env if set, otherwise computed dynamically)
+    EMAIL_AUTH_SENDER: Optional[str] = None
+    EMAIL_ALERTS_SENDER: Optional[str] = None
+    EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
+    EMAIL_TEAM_SENDER: Optional[str] = None
+    EMAIL_BILLING_SENDER: Optional[str] = None
+
+    @property
+    def auth_sender(self) -> str:
+        return self.EMAIL_AUTH_SENDER or f"NexOps Auth <nexops-auth@{self.EMAIL_DOMAIN}>"
+
+    @property
+    def alerts_sender(self) -> str:
+        return self.EMAIL_ALERTS_SENDER or f"NexOps Alerts <nexops-alerts@{self.EMAIL_DOMAIN}>"
+
+    @property
+    def deployments_sender(self) -> str:
+        return self.EMAIL_DEPLOYMENTS_SENDER or f"NexOps Deployments <nexops-deployments@{self.EMAIL_DOMAIN}>"
+
+    @property
+    def team_sender(self) -> str:
+        return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.EMAIL_DOMAIN}>"
+
+    @property
+    def billing_sender(self) -> str:
+        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.EMAIL_DOMAIN}>"
 
     # SMTP Email Configuration
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_EMAIL: str = "noreply@nexops.dev"
+    SMTP_FROM_EMAIL: str = "noreply@asolvitra.tech"
     SMTP_TLS: bool = True
 
     @property
