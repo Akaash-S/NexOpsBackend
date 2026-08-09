@@ -96,7 +96,7 @@ def _build_amazon_style_html(
                 This operational message was sent from an automated system. Please do not reply directly to this email.
               </p>
               <p style="margin: 0; color: #94a3b8; font-size: 11px;">
-                &copy; 2026 NexOps Inc. &bull; asolvitra.tech &bull; All rights reserved.
+                &copy; 2026 NexOps &bull; asolvitra.tech &bull; All rights reserved.
               </p>
             </td>
           </tr>
