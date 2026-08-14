@@ -399,7 +399,7 @@ async def pagerduty_webhook_handler(
         try:
             raw_uid = _verify_pd_uid_token(uid)
         except ValueError:
-            raw_uid = uid
+            raw_uid = uid.split('.')[0]
         async with rls_bypass(session):
             res_user = await session.execute(select(User).where(User.id == raw_uid))
             target_user = res_user.scalars().first()
