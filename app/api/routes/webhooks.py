@@ -406,17 +406,27 @@ async def pagerduty_webhook_handler(
             if target_user:
                 target_workspace_id = target_user.workspace_id
 
-    if target_workspace_id:
-        await session.execute(
-            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false)"),
-            {"workspace_id": target_workspace_id}
+    # Security & Isolation Hardening: Reject requests where target workspace identity cannot be resolved.
+    # Prevents silent fallback to unscoped cross-workspace operations.
+    if not target_workspace_id:
+        logger.warning(f"PagerDuty webhook rejected — target workspace identity could not be resolved from uid={uid!r}.")
+        return JSONResponse(
+            status_code=400,
+            content={"status": "rejected", "reason": "Target workspace identity could not be resolved from uid parameter."}
         )
 
-    # Fix A — workspace-scoped idempotency: reject duplicate deliveries within the same workspace
+    # Set session RLS workspace context unconditionally
+    await session.execute(
+        text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false)"),
+        {"workspace_id": target_workspace_id}
+    )
+
+    # Hardened workspace-scoped idempotency check: unconditionally filtered by target_workspace_id
     if pd_event_id:
-        idempotency_query = select(Event).where(Event.pd_event_id == pd_event_id)
-        if target_workspace_id:
-            idempotency_query = idempotency_query.where(Event.workspace_id == target_workspace_id)
+        idempotency_query = select(Event).where(
+            Event.workspace_id == target_workspace_id,
+            Event.pd_event_id == pd_event_id
+        )
         existing_event_result = await session.execute(idempotency_query)  # type: ignore
         existing_event = existing_event_result.scalars().first()
         if existing_event:
@@ -434,29 +444,26 @@ async def pagerduty_webhook_handler(
             logger.warning(f"PagerDuty {event_type} received but no incident ID in payload — ignoring.")
             return JSONResponse(status_code=200, content={"status": "ignored", "reason": "no pd_incident_id"})
 
-        # Find the original event by pd_incident_id column (fast indexed lookup, workspace-scoped)
+        # Find original event by pd_incident_id, unconditionally scoped to target_workspace_id
         orig_query = select(Event).where(
+            Event.workspace_id == target_workspace_id,
             Event.source == "pagerduty",
             Event.pd_incident_id == pd_incident_id,
             Event.type == "pagerduty.incident"
         )
-        if target_workspace_id:
-            orig_query = orig_query.where(Event.workspace_id == target_workspace_id)
-
         orig_event_result = await session.execute(  # type: ignore
             orig_query.order_by(Event.created_at.desc()).limit(1)
         )
         orig_event = orig_event_result.scalars().first()
 
-        # Find the open or investigating incident by pd_incident_id (direct FK lookup)
+        # Find open or investigating incident by pd_incident_id, unconditionally scoped to target_workspace_id
         matched_incident = None
         if orig_event and orig_event.pd_incident_id:
             inc_query = select(Incident).where(
+                Incident.workspace_id == target_workspace_id,
                 Incident.pd_incident_id == orig_event.pd_incident_id,
                 Incident.status.in_(["open", "investigating"])
             )
-            if target_workspace_id:
-                inc_query = inc_query.where(Incident.workspace_id == target_workspace_id)
             inc_result = await session.execute(inc_query.limit(1))  # type: ignore
             matched_incident = inc_result.scalars().first()
 
@@ -476,7 +483,7 @@ async def pagerduty_webhook_handler(
             })
         else:
             logger.warning(f"PagerDuty {event_type} for PD incident {pd_incident_id} — "
-                           f"no matching open/investigating NexOps incident found. Event arrived out of order.")
+                           f"no matching open/investigating NexOps incident found in workspace {target_workspace_id}.")
             return JSONResponse(status_code=200, content={
                 "status": "unmatched",
                 "reason": f"No open/investigating NexOps incident found for PagerDuty incident {pd_incident_id}"
@@ -487,21 +494,17 @@ async def pagerduty_webhook_handler(
         logger.info(f"PagerDuty event type {event_type!r} is not incident.triggered — ignoring.")
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"event_type {event_type!r} not processed"})
 
-    # Fix B — repo matching: use service.summary; prioritize user's workspace if uid present
+    # Repo matching: unconditionally scoped to target_workspace_id
     repo = None
     if pd_service_name:
         async with rls_bypass(session):
-            if target_workspace_id:
-                res_repo = await session.execute(
-                    select(Repo).where(Repo.workspace_id == target_workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
+            res_repo = await session.execute(
+                select(Repo).where(
+                    Repo.workspace_id == target_workspace_id,
+                    Repo.name.ilike(f"%{pd_service_name}%")
                 )
-                repo = res_repo.scalars().first()
-
-            if not repo and not uid:
-                result = await session.execute(  # type: ignore
-                    select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
-                )
-                repo = result.scalars().first()
+            )
+            repo = res_repo.scalars().first()
 
     if not repo:
         # Do NOT fall back to arbitrary first repo. Reject loudly.
