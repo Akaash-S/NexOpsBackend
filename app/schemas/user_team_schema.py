@@ -10,10 +10,11 @@ from .base import BaseSchema
 class UserResponse(BaseSchema):
     id: str
     email: str
-    full_name: str
+    full_name: str = "Developer"
     avatar_url: Optional[str] = None
-    role: str
-    onboarding_completed: bool
+    role: str = "member"
+    workspace_id: Optional[str] = None
+    onboarding_completed: bool = False
     preferences: Optional[dict] = None
     created_at: datetime
 
