@@ -26,12 +26,41 @@ if settings.REDIS_URL:
         logger.error(f"Failed to initialize Redis client: {e}")
         redis_client = None
 
+import time
+
 _in_memory_cache = {}
 _use_in_memory = False
+_last_failover_time = 0.0
+FAILOVER_COOLDOWN_SECONDS = 30.0
+
+async def _check_redis_health() -> bool:
+    """Helper to check if Redis is accessible and recover from in-memory fallback mode."""
+    global _use_in_memory, _last_failover_time
+    if not redis_client:
+        _use_in_memory = True
+        return False
+
+    if not _use_in_memory:
+        return True
+
+    # Cooldown check: only retry ping every 30 seconds to prevent connection spam
+    now = time.time()
+    if now - _last_failover_time < FAILOVER_COOLDOWN_SECONDS:
+        return False
+
+    try:
+        await asyncio.wait_for(redis_client.ping(), timeout=2.0)
+        _use_in_memory = False
+        logger.info("Redis connectivity recovered! Resuming Redis caching mode.")
+        return True
+    except Exception as e:
+        _last_failover_time = now
+        logger.debug(f"Redis health check still failing: {e}")
+        return False
 
 async def init_redis() -> None:
     """Verify Redis connection at startup to failover immediately if down."""
-    global _use_in_memory
+    global _use_in_memory, _last_failover_time
     if not redis_client:
         _use_in_memory = True
         return
@@ -40,21 +69,24 @@ async def init_redis() -> None:
         _use_in_memory = False
         logger.info("Redis connection verified successfully.")
     except Exception as e:
+        _last_failover_time = time.time()
         logger.warning(f"Redis ping failed at startup ({e}). Switching to in-memory fallback cache.")
         _use_in_memory = True
 
 async def get_cached_data(key: str) -> Optional[Any]:
     """Retrieve data from Redis cache, falling back to in-memory if Redis is down."""
-    global _use_in_memory
-    if _use_in_memory or not redis_client:
+    global _use_in_memory, _last_failover_time
+    is_healthy = await _check_redis_health()
+    if not is_healthy or not redis_client:
         return _in_memory_cache.get(key)
     try:
         data = await redis_client.get(key)
         if data:
             return json.loads(data)
     except Exception as e:
-        logger.warning(f"Redis cache read failed for key '{key}' (switching to in-memory): {e}")
+        logger.warning(f"Redis cache read failed for key '{key}' (switching to in-memory fallback): {e}")
         _use_in_memory = True
+        _last_failover_time = time.time()
         return _in_memory_cache.get(key)
     return None
 
@@ -68,7 +100,7 @@ def json_serial(obj):
 
 async def set_cached_data(key: str, data: Any, ttl: int = 30) -> None:
     """Store data in Redis cache with an optional TTL, falling back to in-memory if Redis is down."""
-    global _use_in_memory
+    global _use_in_memory, _last_failover_time
     
     try:
         serialized = json.dumps(data, default=json_serial)
@@ -77,19 +109,21 @@ async def set_cached_data(key: str, data: Any, ttl: int = 30) -> None:
         logger.error(f"Failed to serialize data for cache key '{key}': {ser_err}")
         return
 
-    if _use_in_memory or not redis_client:
+    is_healthy = await _check_redis_health()
+    if not is_healthy or not redis_client:
         _in_memory_cache[key] = data_dict
         return
     try:
         await redis_client.set(key, serialized, ex=ttl)
     except Exception as e:
-        logger.warning(f"Redis cache write failed for key '{key}' (switching to in-memory): {e}")
+        logger.warning(f"Redis cache write failed for key '{key}' (switching to in-memory fallback): {e}")
         _use_in_memory = True
+        _last_failover_time = time.time()
         _in_memory_cache[key] = data_dict
 
 async def invalidate_cache_pattern(pattern: str) -> None:
     """Invalidate all cache keys matching the given pattern."""
-    global _use_in_memory
+    global _use_in_memory, _last_failover_time
     
     # Invalidate in-memory cache keys matching the pattern
     import fnmatch
@@ -100,7 +134,8 @@ async def invalidate_cache_pattern(pattern: str) -> None:
         except KeyError:
             pass
 
-    if _use_in_memory or not redis_client:
+    is_healthy = await _check_redis_health()
+    if not is_healthy or not redis_client:
         return
     try:
         keys = await redis_client.keys(pattern)
@@ -108,8 +143,9 @@ async def invalidate_cache_pattern(pattern: str) -> None:
             await redis_client.delete(*keys)
             logger.info(f"Invalidated {len(keys)} keys matching pattern: {pattern}")
     except Exception as e:
-        logger.warning(f"Redis cache invalidation failed for pattern '{pattern}' (switching to in-memory): {e}")
+        logger.warning(f"Redis cache invalidation failed for pattern '{pattern}' (switching to in-memory fallback): {e}")
         _use_in_memory = True
+        _last_failover_time = time.time()
 
 async def delete_cached_data(key: str) -> None:
     """Delete a single key from Redis and in-memory cache."""
