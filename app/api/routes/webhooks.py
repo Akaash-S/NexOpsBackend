@@ -462,6 +462,12 @@ async def pagerduty_webhook_handler(
     repo = None
     if pd_service_name:
         uid = request.query_params.get("uid")
+        if uid:
+            from app.api.routes.integrations import _verify_pd_uid_token
+            try:
+                uid = _verify_pd_uid_token(uid)
+            except ValueError:
+                pass
         # rls_bypass guarantees bypass is always reset even on early return or exception
         async with rls_bypass(session):
             if uid:
@@ -474,7 +480,7 @@ async def pagerduty_webhook_handler(
                     )
                     repo = res_repo.scalars().first()
 
-            if not repo:
+            if not repo and not uid:
                 result = await session.execute(  # type: ignore
                     select(Repo).where(Repo.name.ilike(f"%{pd_service_name}%"))  # type: ignore
                 )

@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, JSON, String, Index
+from sqlalchemy import Column, JSON, String, Index, text
 
 
 class Event(SQLModel, table=True):
@@ -33,7 +33,8 @@ class Event(SQLModel, table=True):
     severity: str = Field(default="info", max_length=20)  # info | warning | error | critical
     
     # PagerDuty idempotency: stores the PagerDuty event.id to prevent duplicate processing.
-    # A partial unique index (on rows where pd_event_id IS NOT NULL) is created via migration.
+    # A partial workspace-scoped unique index (workspace_id, pd_event_id) WHERE pd_event_id IS NOT NULL
+    # is enforced via Alembic migration (uq_events_workspace_pd_event_id).
     pd_event_id: Optional[str] = Field(default=None, max_length=64, nullable=True)
 
     # PagerDuty incident ID (e.g. Q3OILL557B8681): used to link acknowledged/resolved
@@ -42,3 +43,13 @@ class Event(SQLModel, table=True):
 
     processed: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index(
+            "uq_events_workspace_pd_event_id",
+            "workspace_id",
+            "pd_event_id",
+            unique=True,
+            postgresql_where=text("pd_event_id IS NOT NULL"),
+        ),
+    )
