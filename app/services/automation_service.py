@@ -36,62 +36,66 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     from app.services.impact_service import propagate_impact, get_downstream_repos
     from app.services.incident_service import get_or_create_incident
     
+    # Extract primitive values upfront before any inner session.commit() expires the ORM model
+    event_id = event.id
+    event_type = event.type
+    repo_id = event.repo_id
+    severity = event.severity
+    workspace_id = event.workspace_id
+    pd_incident_id = event.pd_incident_id
+    event_message = event.message
+
     actions_taken = {
-        "event_id": event.id,
-        "event_type": event.type,
+        "event_id": event_id,
+        "event_type": event_type,
         "rules_matched": 0,
         "total_actions": 0,
         "impacted_repos": 0,
         "incident_id": None
     }
 
-    logger.info(f"Intelligence Engine Processing: {event.type} for repo {event.repo_id}")
+    logger.info(f"Intelligence Engine Processing: {event_type} for repo {repo_id}")
 
     # Evaluate default reactions directly
-    reactions = DEFAULT_REACTIONS.get(event.type, [])
+    reactions = DEFAULT_REACTIONS.get(event_type, [])
     for action in reactions:
         await _execute_single_action(session, action, event)
         actions_taken["total_actions"] += 1
 
     # 2. Impact Propagation
     # If the event is a failure (CI/Deploy), propagate impact
-    if event.type in ["ci.failed", "deploy.failed"] or event.severity in ["error", "critical"]:
+    insight_msg = ""
+    if event_type in ["ci.failed", "deploy.failed"] or severity in ["error", "critical"]:
         # Traverse dependencies and update downstream health
-        await propagate_impact(session, event.repo_id, event.severity)
-        downstream = await get_downstream_repos(session, event.repo_id)
+        await propagate_impact(session, repo_id, severity)
+        downstream = await get_downstream_repos(session, repo_id)
         actions_taken["impacted_repos"] = len(downstream)
         
         # Create or group into an Incident
         incident = await get_or_create_incident(
             session, 
-            event.repo_id, 
-            event.severity, 
-            title=f"Systemic Failure: {event.message or event.type}",
+            repo_id, 
+            severity, 
+            title=f"Systemic Failure: {event_message or event_type}",
             impacted_repos=downstream,
-            pd_incident_id=event.pd_incident_id
+            pd_incident_id=pd_incident_id
         )
         actions_taken["incident_id"] = incident.id
         
         # Generate Intelligent Insight
-        insight_msg = f"{event.type} in {event.repo_id} -> "
+        insight_msg = f"{event_type} in {repo_id} -> "
         if len(downstream) > 0:
             insight_msg += f"propagated to {len(downstream)} services -> impacting cluster health."
         else:
             insight_msg += "local failure detected."
-        
-        event.message = f"{event.message or ''} | Insight: {insight_msg}".strip(" | ")
 
     # 3. Recalculate health score for the source repo
     try:
-        await calculate_health_score(session, event.repo_id)
+        await calculate_health_score(session, repo_id)
     except Exception as e:
         logger.error(f"Health score recalculation failed: {e}")
 
-    # Capture details for broadcast before commit (to avoid lazy loading issues)
-    event_type = event.type
-    repo_id = event.repo_id
-
-    # Gather details for websocket broadcast before commit to avoid lazy loading issues
+    # Gather details for websocket broadcast
     incident_data = None
     candidate_causes_data = []
     if actions_taken.get("incident_id"):
@@ -122,10 +126,14 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
         except Exception as serial_err:
             logger.error(f"Failed to serialize incident/candidate causes: {serial_err}")
 
-    # Mark event as processed
-    event.processed = True
-    session.add(event)
-    await session.commit()
+    # Safely re-fetch event and mark as processed
+    db_event = await session.get(Event, event_id)
+    if db_event:
+        db_event.processed = True
+        if insight_msg:
+            db_event.message = f"{db_event.message or ''} | Insight: {insight_msg}".strip(" | ")
+        session.add(db_event)
+        await session.commit()
 
     # INVALIDATE CACHE IN REDIS
     from app.core.redis import invalidate_cache_pattern
