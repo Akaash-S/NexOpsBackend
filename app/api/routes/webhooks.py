@@ -534,13 +534,11 @@ async def pagerduty_webhook_handler(
     await session.commit()  # type: ignore
     await session.refresh(new_event)  # type: ignore
 
-    # Trigger Automation Engine (async via Redis Stream, fallback to background tasks if Redis down)
+    # Trigger Automation Engine (run background task for immediate process execution)
     from app.services.queue_service import enqueue_event
-    enqueued = await enqueue_event(new_event.id, repo.workspace_id)
-    if not enqueued:
-        logger.warning(f"Redis queue unavailable. Falling back to background task for event {new_event.id}")
-        from app.api.routes.events import _run_automation
-        background_tasks.add_task(_run_automation, new_event.id)
+    await enqueue_event(new_event.id, repo.workspace_id)
+    from app.api.routes.events import _run_automation
+    background_tasks.add_task(_run_automation, new_event.id)
 
     logger.info(f"PagerDuty incident.triggered processed: NexOps event {new_event.id} "
                 f"repo={repo.name} pd_event_id={pd_event_id} pd_incident_id={pd_incident_id!r}")
