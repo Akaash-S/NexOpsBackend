@@ -20,23 +20,18 @@ logger = logging.getLogger("nexops.security")
 @asynccontextmanager
 async def rls_bypass(session: AsyncSession):
     """
-    Async context manager that enables RLS bypass for the duration of the block,
-    then unconditionally resets it to 'false' on exit — even on exception or
-    early return.
-
-    Usage:
-        async with rls_bypass(session):
-            result = await session.execute(select(User).where(User.id == uid))
-            user = result.scalars().first()
-        # bypass_rls is guaranteed False here, even if the block raised
+    Async context manager that enables RLS bypass for the duration of the block.
+    Explicitly sets nexops.bypass_rls to 'true' on entry and guarantees reset to 'false'
+    with session scope (is_local=false) and flush on exit.
     """
     await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false)"))
-    logger.debug("RLS bypass ENABLED for session")
+    logger.debug("RLS bypass ENABLED")
     try:
         yield
     finally:
         try:
             await session.execute(text("SELECT set_config('nexops.bypass_rls', 'false', false)"))
-            logger.debug("RLS bypass DISABLED for session")
+            await session.flush()
+            logger.debug("RLS bypass DISABLED")
         except Exception as reset_err:
-            logger.error(f"CRITICAL: Failed to reset RLS bypass — session may be in elevated state: {reset_err}")
+            logger.error(f"CRITICAL: Failed to reset RLS bypass: {reset_err}")
