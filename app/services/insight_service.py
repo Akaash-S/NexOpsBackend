@@ -87,6 +87,38 @@ async def calculate_health_score(session: AsyncSession, repo_id: str) -> Optiona
     )
     health_score = round(max(0, min(100, health_score)), 1)
 
+    # ── Factor 4: Active Incident Cap ─────────────────────────────────────
+    from app.models.incident import Incident
+    from app.models.candidate_cause import CandidateCause
+
+    inc_query = select(Incident).where(
+        Incident.status.in_(["open", "investigating"]),
+        (Incident.workspace_id == repo.workspace_id) | (Incident.workspace_id == "default-workspace")
+    )
+    inc_result = await session.execute(inc_query)
+    active_incidents = list(inc_result.scalars().all())
+
+    has_active_incident = False
+    for inc in active_incidents:
+        if inc.root_cause_repo_id == repo_id or (inc.impacted_repos and repo_id in inc.impacted_repos):
+            has_active_incident = True
+            break
+
+    if not has_active_incident and active_incidents:
+        inc_ids = [inc.id for inc in active_incidents]
+        cc_res = await session.execute(
+            select(CandidateCause).where(
+                CandidateCause.incident_id.in_(inc_ids),
+                CandidateCause.repo_id == repo_id
+            )
+        )
+        if cc_res.scalars().first():
+            has_active_incident = True
+
+    if has_active_incident:
+        health_score = min(health_score, 45.0)
+        repo.ci_status = "failing"
+
     # Update the repo record
     repo_name = repo.name
     repo.health_score = health_score
@@ -95,7 +127,7 @@ async def calculate_health_score(session: AsyncSession, repo_id: str) -> Optiona
     await session.commit()
 
     logger.info(f"Health score for {repo_name}: {health_score} "
-                f"(CI: {ci_success_rate:.0f}, Activity: {commit_activity:.0f}, Issues: {issue_health:.0f})")
+                f"(CI: {ci_success_rate:.0f}, Activity: {commit_activity:.0f}, Issues: {issue_health:.0f}, ActiveIncident: {has_active_incident})")
     return health_score
 
 
