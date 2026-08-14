@@ -20,12 +20,18 @@ router = APIRouter(prefix="/events", tags=["Events"])
 async def _run_automation(event_id: str):
     """Background task to process events without blocking the ingestion response."""
     from app.core.database import async_session
+    from app.core.security import rls_bypass
+    import logging
+    logger = logging.getLogger("nexops.automation")
     
     async with async_session() as session:
-        event = await event_service.get_event_by_id(session, event_id)
-        if event:
-            # 1. Run general automation (alerts, repo status, etc.)
-            await process_event(session, event)
+        async with rls_bypass(session):
+            event = await event_service.get_event_by_id(session, event_id)
+            if event:
+                logger.info(f"Running background automation for event {event.id} ({event.type}) in workspace {event.workspace_id}")
+                await process_event(session, event)
+            else:
+                logger.warning(f"Background automation task could not find event {event_id}")
 
 
 @router.post("", response_model=EventResponse, status_code=201)
