@@ -389,15 +389,39 @@ async def pagerduty_webhook_handler(
     logger.info(f"PagerDuty webhook: event_type={event_type} pd_event_id={pd_event_id} "
                 f"pd_incident_id={pd_incident_id} service={pd_service_name!r}")
 
-    # Fix A — idempotency: reject duplicate deliveries with the same PagerDuty event ID
-    if pd_event_id:
-        existing_event_result = await session.execute(  # type: ignore
-            select(Event).where(Event.pd_event_id == pd_event_id)
+    # --- Extract user & workspace context early ---
+    uid = request.query_params.get("uid")
+    target_user = None
+    target_workspace_id = None
+    if uid:
+        from app.api.routes.integrations import _verify_pd_uid_token
+        from app.models.user import User
+        try:
+            raw_uid = _verify_pd_uid_token(uid)
+        except ValueError:
+            raw_uid = uid
+        async with rls_bypass(session):
+            res_user = await session.execute(select(User).where(User.id == raw_uid))
+            target_user = res_user.scalars().first()
+            if target_user:
+                target_workspace_id = target_user.workspace_id
+
+    if target_workspace_id:
+        await session.execute(
+            text("SELECT set_config('nexops.current_workspace_id', :workspace_id, false)"),
+            {"workspace_id": target_workspace_id}
         )
+
+    # Fix A — workspace-scoped idempotency: reject duplicate deliveries within the same workspace
+    if pd_event_id:
+        idempotency_query = select(Event).where(Event.pd_event_id == pd_event_id)
+        if target_workspace_id:
+            idempotency_query = idempotency_query.where(Event.workspace_id == target_workspace_id)
+        existing_event_result = await session.execute(idempotency_query)  # type: ignore
         existing_event = existing_event_result.scalars().first()
         if existing_event:
             logger.warning(f"Duplicate PagerDuty event {pd_event_id} — already processed as "
-                           f"NexOps event {existing_event.id}. Skipping.")
+                           f"NexOps event {existing_event.id} for workspace {existing_event.workspace_id}. Skipping.")
             return JSONResponse(status_code=200, content={
                 "status": "duplicate",
                 "pd_event_id": pd_event_id,
@@ -410,25 +434,30 @@ async def pagerduty_webhook_handler(
             logger.warning(f"PagerDuty {event_type} received but no incident ID in payload — ignoring.")
             return JSONResponse(status_code=200, content={"status": "ignored", "reason": "no pd_incident_id"})
 
-        # Find the original event by pd_incident_id column (fast indexed lookup)
+        # Find the original event by pd_incident_id column (fast indexed lookup, workspace-scoped)
+        orig_query = select(Event).where(
+            Event.source == "pagerduty",
+            Event.pd_incident_id == pd_incident_id,
+            Event.type == "pagerduty.incident"
+        )
+        if target_workspace_id:
+            orig_query = orig_query.where(Event.workspace_id == target_workspace_id)
+
         orig_event_result = await session.execute(  # type: ignore
-            select(Event).where(
-                Event.source == "pagerduty",
-                Event.pd_incident_id == pd_incident_id,
-                Event.type == "pagerduty.incident"
-            ).order_by(Event.created_at.desc()).limit(1)
+            orig_query.order_by(Event.created_at.desc()).limit(1)
         )
         orig_event = orig_event_result.scalars().first()
 
         # Find the open or investigating incident by pd_incident_id (direct FK lookup)
         matched_incident = None
         if orig_event and orig_event.pd_incident_id:
-            inc_result = await session.execute(  # type: ignore
-                select(Incident).where(
-                    Incident.pd_incident_id == orig_event.pd_incident_id,
-                    Incident.status.in_(["open", "investigating"])
-                ).limit(1)
+            inc_query = select(Incident).where(
+                Incident.pd_incident_id == orig_event.pd_incident_id,
+                Incident.status.in_(["open", "investigating"])
             )
+            if target_workspace_id:
+                inc_query = inc_query.where(Incident.workspace_id == target_workspace_id)
+            inc_result = await session.execute(inc_query.limit(1))  # type: ignore
             matched_incident = inc_result.scalars().first()
 
         if matched_incident:
@@ -461,24 +490,12 @@ async def pagerduty_webhook_handler(
     # Fix B — repo matching: use service.summary; prioritize user's workspace if uid present
     repo = None
     if pd_service_name:
-        uid = request.query_params.get("uid")
-        if uid:
-            from app.api.routes.integrations import _verify_pd_uid_token
-            try:
-                uid = _verify_pd_uid_token(uid)
-            except ValueError:
-                pass
-        # rls_bypass guarantees bypass is always reset even on early return or exception
         async with rls_bypass(session):
-            if uid:
-                from app.models.user import User
-                res_user = await session.execute(select(User).where(User.id == uid))
-                usr_obj = res_user.scalars().first()
-                if usr_obj:
-                    res_repo = await session.execute(
-                        select(Repo).where(Repo.workspace_id == usr_obj.workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
-                    )
-                    repo = res_repo.scalars().first()
+            if target_workspace_id:
+                res_repo = await session.execute(
+                    select(Repo).where(Repo.workspace_id == target_workspace_id, Repo.name.ilike(f"%{pd_service_name}%"))
+                )
+                repo = res_repo.scalars().first()
 
             if not repo and not uid:
                 result = await session.execute(  # type: ignore
