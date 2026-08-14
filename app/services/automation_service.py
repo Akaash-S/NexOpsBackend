@@ -111,7 +111,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
                 incident_data = db_inc.model_dump()
                 for k, v in incident_data.items():
                     if hasattr(v, "isoformat"):
-                        incident_data[k] = v.isoformat()
+                        iso_s = v.isoformat()
+                        incident_data[k] = iso_s if (iso_s.endswith('Z') or '+' in iso_s) else f"{iso_s}Z"
 
                 # Fetch candidate causes
                 cc_res = await session.execute(
@@ -121,7 +122,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
                     cc_dict = cc.model_dump()
                     for k, v in cc_dict.items():
                         if hasattr(v, "isoformat"):
-                            cc_dict[k] = v.isoformat()
+                            iso_s = v.isoformat()
+                            cc_dict[k] = iso_s if (iso_s.endswith('Z') or '+' in iso_s) else f"{iso_s}Z"
                     candidate_causes_data.append(cc_dict)
         except Exception as serial_err:
             logger.error(f"Failed to serialize incident/candidate causes: {serial_err}")
