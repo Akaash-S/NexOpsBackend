@@ -20,7 +20,7 @@ router = APIRouter(prefix="/events", tags=["Events"])
 async def _run_automation(event_id: str):
     """Background task to process events without blocking the ingestion response."""
     from app.core.database import async_session
-    from app.core.security import rls_bypass
+    from app.core.rls import rls_bypass
     import logging
     logger = logging.getLogger("nexops.automation")
     
