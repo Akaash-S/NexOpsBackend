@@ -1,0 +1,6 @@
+2026-08-14T12:42:00.571Z [BROWSER INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+2026-08-14T12:42:00.661Z [BROWSER LOG] [HMR] connected
+2026-08-14T12:42:01.203Z [BROWSER LOG] Realtime: Connecting to wss://nexops-server.asolvitra.tech/ws...
+2026-08-14T12:42:01.376Z [BROWSER LOG] Realtime: WebSocket connection established successfully.
+2026-08-14T12:42:08.592Z [BROWSER LOG] Realtime: Received message: {type: incident.created, source: intelligence_engine, payload: Object}
+2026-08-14T12:42:08.616Z [BROWSER LOG] Realtime: Received message: {type: incident.created, source: intelligence_engine, payload: Object}
