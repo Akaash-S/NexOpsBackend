@@ -58,6 +58,8 @@ async def verify_pagerduty_signature(
     Supports multi-tenancy: looks up user's secret from the db using the 'uid' query parameter.
     Falls back to settings.PAGERDUTY_WEBHOOK_SECRET if 'uid' is not present or user has no secret.
     """
+    uid = request.query_params.get("uid")
+    webhook_secret = None
     secret_source = "none"
     if uid:
         from app.models.user import User
