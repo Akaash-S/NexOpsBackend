@@ -107,56 +107,60 @@ async def get_current_user(
 
     # Sync with database
     try:
-        result = await session.execute(select(User).where(User.id == uid))
-        user = result.scalars().first()
+        from app.core.rls import rls_bypass
+        async with rls_bypass(session):
+            result = await session.execute(select(User).where(User.id == uid))
+            user = result.scalars().first()
 
-        email = decoded_token.get("email", "")
-        if not user and email:
-            # Check if user exists by email to prevent UniqueViolationError on email constraint
-            email_result = await session.execute(select(User).where(User.email == email))
-            user = email_result.scalars().first()
-            if user:
-                logger.info(f"Matched existing user record by email ({email}): ID={user.id}")
+            email = decoded_token.get("email", "")
+            if not user and email:
+                # Check if user exists by email to prevent UniqueViolationError on email constraint
+                email_result = await session.execute(select(User).where(User.email == email))
+                user = email_result.scalars().first()
+                if user:
+                    logger.info(f"Matched existing user record by email ({email}): ID={user.id}")
 
         if not user:
-            # Create a unique personal workspace for new user
-            from app.models.workspace import Workspace
-            user_ws_id = f"ws-{uid[:12]}"
-            try:
-                ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
-                user_ws = ws_res.scalars().first()
-            except Exception as ws_err:
-                logger.warning(f"Workspace query fallback during init: {ws_err}")
-                user_ws = None
-
-            if not user_ws:
+            from app.core.rls import rls_bypass
+            async with rls_bypass(session):
+                # Create a unique personal workspace for new user
+                from app.models.workspace import Workspace
+                user_ws_id = f"ws-{uid[:12]}"
                 try:
-                    user_name = decoded_token.get("name", "") or "Developer"
-                    user_ws = Workspace(id=user_ws_id, name=f"{user_name}'s Workspace", color="blue")
-                    session.add(user_ws)
-                    await session.flush()
-                except Exception as create_err:
-                    logger.warning(f"Workspace creation fallback: {create_err}")
+                    ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+                    user_ws = ws_res.scalars().first()
+                except Exception as ws_err:
+                    logger.warning(f"Workspace query fallback during init: {ws_err}")
+                    user_ws = None
 
-            # Check provider verification status (trusted OAuth vs unverified password)
-            provider_id = decoded_token.get("firebase", {}).get("sign_in_provider", "")
-            is_firebase_verified = bool(decoded_token.get("email_verified", False))
-            is_trusted_oauth = provider_id in ("github.com", "google.com") and is_firebase_verified
+                if not user_ws:
+                    try:
+                        user_name = decoded_token.get("name", "") or "Developer"
+                        user_ws = Workspace(id=user_ws_id, name=f"{user_name}'s Workspace", color="blue")
+                        session.add(user_ws)
+                        await session.flush()
+                    except Exception as create_err:
+                        logger.warning(f"Workspace creation fallback: {create_err}")
 
-            # Create new user with unique workspace_id assigned upfront
-            user = User(
-                id=uid,
-                email=email,
-                full_name=decoded_token.get("name", "") or "Developer",
-                avatar_url=decoded_token.get("picture"),
-                role="member",
-                workspace_id=user_ws_id,
-                email_verified=is_trusted_oauth,
-            )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-            logger.info(f"Created new database record with unique workspace {user_ws_id} for user: {uid} (email_verified={is_trusted_oauth})")
+                # Check provider verification status (trusted OAuth vs unverified password)
+                provider_id = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+                is_firebase_verified = bool(decoded_token.get("email_verified", False))
+                is_trusted_oauth = provider_id in ("github.com", "google.com") and is_firebase_verified
+
+                # Create new user with unique workspace_id assigned upfront
+                user = User(
+                    id=uid,
+                    email=email,
+                    full_name=decoded_token.get("name", "") or "Developer",
+                    avatar_url=decoded_token.get("picture"),
+                    role="member",
+                    workspace_id=user_ws_id,
+                    email_verified=is_trusted_oauth,
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                logger.info(f"Created new database record with unique workspace {user_ws_id} for user: {uid} (email_verified={is_trusted_oauth})")
         else:
             # Update display fields if they changed
             changed = False
@@ -179,13 +183,15 @@ async def get_current_user(
 
             if not user.workspace_id:
                 from app.models.workspace import Workspace
+                from app.core.rls import rls_bypass
                 user_ws_id = f"ws-{uid[:12]}"
-                ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
-                user_ws = ws_res.scalars().first()
-                if not user_ws:
-                    user_ws = Workspace(id=user_ws_id, name=f"{user.full_name or 'User'}'s Workspace", color="blue")
-                    session.add(user_ws)
-                    await session.flush()
+                async with rls_bypass(session):
+                    ws_res = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+                    user_ws = ws_res.scalars().first()
+                    if not user_ws:
+                        user_ws = Workspace(id=user_ws_id, name=f"{user.full_name or 'User'}'s Workspace", color="blue")
+                        session.add(user_ws)
+                        await session.flush()
                 user.workspace_id = user_ws_id
                 changed = True
 
