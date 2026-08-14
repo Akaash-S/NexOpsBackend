@@ -860,3 +860,30 @@ async def disconnect_pagerduty(
     logger.info(f"PagerDuty disconnected for user {user.id}")
 
     return {"status": "disconnected"}
+
+
+class PagerDutySecretUpdate(BaseModel):
+    secret: str
+
+
+@router.post("/integrations/pagerduty/secret")
+async def update_pagerduty_secret(
+    data: PagerDutySecretUpdate,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Manually update or set the user's encrypted PagerDuty webhook secret."""
+    secret_val = data.secret.strip() if data.secret else ""
+    if not secret_val or len(secret_val) < 8:
+        raise HTTPException(status_code=400, detail="Secret must be at least 8 characters long.")
+
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.pagerduty_webhook_secret = encrypt_secret(secret_val)
+    session.add(db_user)
+    await session.commit()  # type: ignore
+    await invalidate_user_cache(user.id)
+    logger.info(f"Updated PagerDuty webhook secret for user {user.id}")
+    return {"status": "success", "message": "PagerDuty webhook secret updated successfully."}
