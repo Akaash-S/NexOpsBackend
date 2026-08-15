@@ -23,4 +23,5 @@ def decrypt_secret(cipher_text: str) -> str:
         cipher = get_cipher()
         return cipher.decrypt(cipher_text.encode()).decode()
     except Exception as e:
-        raise ValueError(f"Failed to decrypt stored credential: {e}")
+        err_msg = f"{type(e).__name__}: {str(e) if str(e) else 'Invalid token signature or key mismatch'}"
+        raise ValueError(f"Failed to decrypt stored credential: {err_msg}")

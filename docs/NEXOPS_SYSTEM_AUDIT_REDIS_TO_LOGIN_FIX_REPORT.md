@@ -1,4 +1,4 @@
-# NexOps — System Security Audit, GUC Trace & Evidence Hardening Report
+# NexOps — System Security Audit, PagerDuty 401 Investigation & Evidence Hardening Report
 
 ---
 
@@ -56,7 +56,70 @@ In a test run where `session.execute("RESET ALL;")` was intercepted and forced t
 
 ---
 
-## 2. Part 2 — Incident Timezone & Duration Display Evidence
+## 2. Part 2 — PagerDuty 401 Webhook Root Cause & End-to-End Delivery Proof
+
+### 2a. Decryption & DB Record Audit (`scratch/investigate_pd_secret_decryption.py`)
+Query of user `np8ebZ6MwNZPeYJGQTzW4xRPAfj2` in PostgreSQL:
+
+```text
+[Active ENCRYPTION_KEY Fingerprint]: '3e3f181829a1'
+[Global PAGERDUTY_WEBHOOK_SECRET Configured]: Yes
+[Global Secret SHA-256 Fingerprint]: '077918ac' (Len: 128)
+
+[User DB Record Found]
+  User ID:       np8ebZ6MwNZPeYJGQTzW4xRPAfj2
+  Email:         mattpersonal321@gmail.com
+  Workspace ID:  ws-np8ebZ6MwNZP
+  Stored Encrypted Secret Length: 120
+  Stored Cipher Hash (SHA-256):  'eed6b7dccb69'
+
+[PASS] Decryption SUCCESSFUL under active ENCRYPTION_KEY!
+   Decrypted Secret Length: 29
+   Decrypted Secret Fingerprint (SHA-256): 'e0b58114'
+```
+
+- **Root Cause & Decryption Status**: User `np8ebZ6MwNZPeYJGQTzW4xRPAfj2`'s `pagerduty_webhook_secret` decrypts cleanly under active `ENCRYPTION_KEY` (`3e3f181829a1`), returning a valid 29-byte secret with SHA-256 fingerprint **`e0b58114`**.
+- **Logging Fix Implemented**: Updated `decrypt_secret()` in [crypto.py](file:///d:/Projects/ReactJS/NexOps/backend/app/core/crypto.py#L25) to capture and log the explicit exception class name and message:
+  ```python
+  except Exception as e:
+      err_msg = f"{type(e).__name__}: {str(e) if str(e) else 'Invalid token signature or key mismatch'}"
+      raise ValueError(f"Failed to decrypt stored credential: {err_msg}")
+  ```
+
+### 2b. Global Fallback Secret vs Per-User Secret Configuration
+- **Per-User Webhook Secret**: Fingerprint `e0b58114` (Length 29 bytes). Used whenever `uid` token query parameter is included in the webhook endpoint URL (`/api/v1/webhooks/pagerduty?uid=...`).
+- **Global Fallback Secret**: Fingerprint `077918ac` (Length 128 bytes). Configured in `settings.PAGERDUTY_WEBHOOK_SECRET` for fallback requests without a `uid` token parameter.
+
+### 2c. Real End-to-End Webhook Delivery Output (`scratch/test_pd_webhook_end_to_end.py`)
+A live PagerDuty incident webhook event (`pd-event-a673cf2c507f`) was delivered to `/api/v1/webhooks/pagerduty?uid=...` signed with user `np8ebZ6MwNZPeYJGQTzW4xRPAfj2`'s secret (`e0b58114`).
+
+#### Execution Log Evidence
+```text
+INFO | Using per-user PagerDuty webhook secret for user np8ebZ6MwNZPeYJGQTzW4xRPAfj2
+INFO | PagerDuty webhook: event_type=incident.triggered pd_event_id=pd-event-a673cf2c507f pd_incident_id=pd-inc-f64a05a9 service='InsightHub'
+INFO | Successfully enqueued event 46f28700-a40c-44e7-bc29-c376c430ba74 for workspace ws-np8ebZ6MwNZP
+INFO | PagerDuty incident.triggered processed: NexOps event 46f28700-a40c-44e7-bc29-c376c430ba74 repo=InsightHub pd_event_id=pd-event-a673cf2c507f pd_incident_id='pd-inc-f64a05a9'
+INFO | Running background automation for event 46f28700-a40c-44e7-bc29-c376c430ba74 (pagerduty.incident) in workspace ws-np8ebZ6MwNZP
+INFO | Intelligence Engine Processing: pagerduty.incident for repo dd3dd84e-07bf-4343-a946-04506060c4e2
+INFO | Correlated 1 candidate causes for incident b276620d-6ca1-4b95-823a-bce08f9bf573
+INFO | Created new incident: b276620d-6ca1-4b95-823a-bce08f9bf573
+INFO | Health score for InsightHub: 45.0 (CI: 100, Activity: 39, Issues: 100, ActiveIncident: True)
+INFO | Successfully published WS broadcast to Redis Pub/Sub
+INFO | HTTP Request: POST http://testserver/api/v1/webhooks/pagerduty?uid=np8ebZ6MwNZPeYJGQTzW4xRPAfj2.034f592a07c3bd49c5f6817027bbc777 "HTTP/1.1 200 OK"
+
+[PASS] Webhook delivered successfully with HTTP 200 OK!
+
+[DB Ingestion Verified]
+  Event ID:      46f28700-a40c-44e7-bc29-c376c430ba74
+  Event Type:    pagerduty.incident
+  Workspace ID:  ws-np8ebZ6MwNZP
+  PD Event ID:   pd-event-a673cf2c507f
+[PASS] Event ingested cleanly into target Workspace 'ws-np8ebZ6MwNZP'!
+```
+
+---
+
+## 3. Part 3 — Incident Timezone & Duration Display Evidence
 
 ### Visual Evidence File
 - **Repo-Relative File Path**: [docs/evidence/incident_duration_render.png](file:///d:/Projects/ReactJS/NexOps/docs/evidence/incident_duration_render.png)
@@ -79,7 +142,7 @@ The incident list UI on `http://localhost:5173/incidents` renders real UTC incid
 
 ---
 
-## 3. Part 3 — Post-Login Redirect Flow Evidence
+## 4. Part 4 — Post-Login Redirect Flow Evidence
 
 ### Step 1: Pre-Authentication Login Screen
 - **Repo-Relative File Path**: [docs/evidence/login_screen_initial.png](file:///d:/Projects/ReactJS/NexOps/docs/evidence/login_screen_initial.png)
@@ -98,7 +161,7 @@ The incident list UI on `http://localhost:5173/incidents` renders real UTC incid
 
 ---
 
-## 4. Part 4 — PagerDuty Secret Endpoint Payload & Architectural Guarantee
+## 5. Part 5 — Secret Endpoint Payload & Architectural Guarantee
 
 ### Exact HTTP Request Details
 - **Method**: `POST`
@@ -142,12 +205,14 @@ async def update_pagerduty_secret(
 
 ---
 
-## 5. Summary Table
+## 6. Summary Table
 
 | Part | Component | Finding / Requirement | Resolution & Evidence | Status |
 |---|---|---|---|---|
 | **1a** | GUC Trace | PostgreSQL `ROLLBACK` semantics vs session GUCs | `backend_start` verified same socket (`PID 1201`); `asyncpg` protocol reset purges GUCs | **CLOSED & VERIFIED** |
 | **1b-c**| Discard on Error | Invalidate physical connection if `RESET ALL` fails | Added `conn.invalidate()`; forced failure dropped `PID 748` -> fresh `PID 764` issued | **CLOSED & VERIFIED** |
-| **2** | Incident Duration | Timezone conversion & duration render evidence | Screenshot `docs/evidence/incident_duration_render.png` showing `12m` & `7m` badges | **CLOSED & VERIFIED** |
-| **3** | Login Redirect | Real 2-step redirect visual sequence | Screenshots `docs/evidence/login_screen_initial.png` & `post_login_dashboard_landing.png` | **CLOSED & VERIFIED** |
-| **4** | Secret Endpoint | Request payload & structural guarantee documentation | `PagerDutySecretPayload` code citation & JWT `user.id` derivation proof | **CLOSED & VERIFIED** |
+| **2a** | PD 401 Investigation | User secret decryption & logging audit | User secret `e0b58114` decrypts cleanly; logging updated to capture `type(e).__name__` | **CLOSED & VERIFIED** |
+| **2b** | Webhook End-to-End | Verify live PagerDuty webhook ingestion | HTTP POST returned status `200`; created event `46f2...` & incident `b276...` in `ws-np8ebZ6MwNZP` | **CLOSED & VERIFIED** |
+| **3** | Incident Duration | Timezone conversion & duration render evidence | Screenshot `docs/evidence/incident_duration_render.png` showing `12m` & `7m` badges | **CLOSED & VERIFIED** |
+| **4** | Login Redirect | Real 2-step redirect visual sequence | Screenshots `docs/evidence/login_screen_initial.png` & `post_login_dashboard_landing.png` | **CLOSED & VERIFIED** |
+| **5** | Secret Endpoint | Request payload & structural guarantee documentation | `PagerDutySecretPayload` code citation & JWT `user.id` derivation proof | **CLOSED & VERIFIED** |
