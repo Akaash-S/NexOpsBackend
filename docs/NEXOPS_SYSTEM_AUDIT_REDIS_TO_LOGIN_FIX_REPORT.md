@@ -1,89 +1,123 @@
-# NexOps — System Security Audit, Fresh PagerDuty Connection & Production Report
+# NexOps — System Security Audit, Email Scope Trim & Production Report
 
 ---
 
-## 1. Part 1 — Fresh PagerDuty Connection Audit
+## 1. Part 1 — Sender Identity Inventory & Usage Code Search
 
-### Database Integration Credentials Query (`scratch/audit_fresh_pd_connection.py`)
-Direct query of user integration secrets in Neon DB:
+### 1a. Codebase Search Audit for Sender Identities
+Prior to removing any sender identity, a full ripgrep code search was executed across the entire repository (backend and frontend) to audit real function call sites (`send_email(..., from_email=...)`):
 
 ```text
 =================================================================
-AUDITING FRESH PAGERDUTY CONNECTION & RECENT INCIDENTS
+PART 1: SENDER IDENTITY INVENTORY & CALL SITE CODE SEARCH
 =================================================================
+1. auth_sender ('nexops-auth@asolvitra.tech')
+   - Function: send_otp_email() in app/services/email_service.py
+   - Usage: Dispatches 6-digit CSPRNG verification code for user signup & login.
+   - Status: ACTIVE & IN USE (100% Verified)
 
-[1. Users & PagerDuty Integration Secrets Audit]
-  User ID:       np8ebZ6MwNZPeYJGQTzW4xRPAfj2
-  Email:         mattpersonal321@gmail.com
-  Workspace ID:  ws-np8ebZ6MwNZP
-  Secret Length: 184
-  Updated At:    2026-08-14 08:06:05.155770
+2. alerts_sender ('nexops-alerts@asolvitra.tech')
+   - Function: send_incident_alert_email() in app/services/email_service.py
+   - Usage: Dispatches Critical Incident Alert notifications to on-call engineers.
+   - Status: ACTIVE & IN USE (100% Verified)
 
-  User ID:       victim_user_id_998877
-  Email:         victim@nexops.dev
-  Workspace ID:  ws-np8ebZ6MwNZP
-  Secret Length: 29
-  Updated At:    2026-08-15 03:35:44.673555
+3. deployments_sender ('nexops-deployments@asolvitra.tech')
+   - Function: send_deployment_alert_email() in app/services/email_service.py
+   - Usage: Dispatches CI/CD build & deployment notifications for tracked repositories.
+   - Status: ACTIVE & IN USE (100% Verified)
+
+4. team_sender ('nexops-team@asolvitra.tech')
+   - Function: send_workspace_invite_email() in app/services/email_service.py
+   - Usage: Dispatches workspace team member collaboration invitations.
+   - Status: ACTIVE & IN USE (100% Verified)
+
+5. billing_sender ('nexops-billing@asolvitra.tech')
+   - Config Field: EMAIL_BILLING_SENDER / billing_sender in app/core/config.py
+   - Usage: ZERO call sites across backend and frontend (Stripe/billing deferred).
+   - Status: CONFIRMED UNUSED (Target for Scope Trim)
 ```
-
-### Connection Status Findings
-1. **Existing Connection State**: User `np8ebZ6MwNZPeYJGQTzW4xRPAfj2` (`mattpersonal321@gmail.com`) is configured with an active per-user webhook secret (Length 184, updated `2026-08-14 08:06:05`).
-2. **Pending Founder Action**: Database query confirms no new PagerDuty trial account connection was established via the "Connect PagerDuty" OAuth flow after `2026-08-15 13:12:05 UTC`.
 
 ---
 
-## 2. Part 2 — Real Incident Lifecycle & Webhook Event Audit
+## 2. Part 2 — Scope Reduction Diff (`billing` Identity Removal)
 
-### Event & Incident Audit Log
-Queries for `Event` and `Incident` records created in Neon DB after `2026-08-15 13:12:05 UTC`:
+### Config File Diff ([app/core/config.py](file:///d:/Projects/ReactJS/NexOps/backend/app/core/config.py))
+
+```diff
+@@ -69,7 +69,6 @@
+     EMAIL_ALERTS_SENDER: Optional[str] = None
+     EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
+     EMAIL_TEAM_SENDER: Optional[str] = None
+-    EMAIL_BILLING_SENDER: Optional[str] = None
+ 
+     @property
+     def domain(self) -> str:
+@@ -94,9 +94,6 @@
+     def team_sender(self) -> str:
+         return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.domain}>"
+ 
+-    @property
+-    def billing_sender(self) -> str:
+-        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.domain}>"
+```
+
+---
+
+## 3. Part 3 — Confirmation of Untouched Domain Migration
+
+- **Sending Domain**: `asolvitra.tech` / `nexops.asolvitra.tech` remains 100% untouched.
+- **Verification**: All DNS records (DKIM, SPF, DMARC) remain active on Resend.
+- **Scope Limit**: Zero domain configuration or DNS settings were modified during this trim pass.
+
+---
+
+## 4. Part 4 — Post-Trim Email Service Regression Test (`scratch/test_email_trim_regression.py`)
+
+### Execution Output
+Real email dispatch test using external non-owner recipient (`devtest9988@gmail.com`) via Resend REST API:
 
 ```text
-[2. New Events Created After 2026-08-15 13:12:05] Count: 3
-  - Event ID:    a07f9399-1cbb-40e0-b7ff-35a7a6638828
-    Type:        pagerduty.incident | Source: pagerduty
-    PD Event ID: pd-adv-734d22e1    | PD Inc ID: pd-inc-d5d001df
-    Created At:  2026-08-15 13:25:37.558132
-  - Event ID:    a220acc0-3f24-43b8-a8f6-a9014fa0e99f
-    Type:        pagerduty.incident | Source: pagerduty
-    PD Event ID: pd-live-prod-b0fe806acd3f | PD Inc ID: pd-inc-d037315c
-    Created At:  2026-08-15 13:17:30.969088
-  - Event ID:    e548d229-bce6-4e0e-bb24-fac9f675b8d2
-    Type:        pagerduty.incident | Source: pagerduty
-    PD Event ID: pd-diag-5c994ce7   | PD Inc ID: pd-inc-8c4acdcc
-    Created At:  2026-08-15 13:17:14.340340
+=================================================================
+PART 4: EMAIL SERVICE REGRESSION TEST AFTER SCOPE TRIM
+=================================================================
 
-[3. System Incidents Audit]
-  - Incident ID:   b276620d-6ca1-4b95-823a-bce08f9bf573
-    Title:         Systemic Failure: PagerDuty incident: End-to-End Live Audit Test Incident (pd-event-a673cf2c507f) (service: InsightHub)
-    Status:        resolved
-    Workspace ID:  ws-np8ebZ6MwNZP
-    PD Incident ID:pd-inc-f64a05a9
-    Created At:    2026-08-15 13:12:05.761130
-    Resolved At:   2026-08-15 13:51:59.697337
-    Candidate Cause Score: 88.5 / 100
+[Configured Email Sender Identities (Trimmed Set)]
+  Domain:             asolvitra.tech
+  Auth Sender:        NexOps Auth <nexops-auth@asolvitra.tech>
+  Alerts Sender:      NexOps Alerts <nexops-alerts@asolvitra.tech>
+  Deployments Sender: NexOps Deployments <nexops-deployments@asolvitra.tech>
+  Team Sender:        NexOps Team <nexops-team@asolvitra.tech>
+  Billing Sender:     [REMOVED / UNUSED]
+
+[Test 1] Dispatching OTP Email to 'devtest9988@gmail.com'...
+  Result: SUCCESS (Delivered)
+
+[Test 2] Dispatching Incident Alert Email to 'devtest9988@gmail.com'...
+  Result: SUCCESS (Delivered)
+
+[Test 3] Dispatching Deployment Alert Email to 'devtest9988@gmail.com'...
+  Result: SUCCESS (Delivered)
+
+[Test 4] Dispatching Workspace Invite Email to 'devtest9988@gmail.com'...
+  Result: SUCCESS (Delivered)
+
+[PASS] ALL 4 KEPT EMAIL SENDER IDENTITIES DELIVERED SUCCESSFULLY VIA RESEND API!
 ```
 
-### Lifecycle Analysis
-1. **Latest System Incident**: The latest incident in the system remains `b276620d-6ca1-4b95-823a-bce08f9bf573` (created at `2026-08-15 13:12:05.761130`, resolved at `2026-08-15 13:51:59.697337`).
-2. **Alert Grouping**: Inbound events `e548d229...`, `a220acc0...`, and `a07f9399...` were ingested and grouped as correlated alerts in the timeline of Incident `b276620d-6ca1-4b95-823a-bce08f9bf573`.
-3. **Pending Founder Trigger**: A fresh incident from a new PagerDuty trial account has not been triggered yet.
+---
+
+## 5. Part 5 — Documentation Sync
+
+Updated all configuration documentation and architectural specifications to accurately document the 4 operational sender channels (`nexops-auth`, `nexops-alerts`, `nexops-deployments`, `nexops-team`).
 
 ---
 
-## 3. Part 3 — Screenshot Evidence
+## 6. Final Summary Matrix
 
-### Confirmed Resolved Incident View
-Captured from `http://localhost:5173/incidents/b276620d-6ca1-4b95-823a-bce08f9bf573`:
-
-- **Repo-Relative File Path**: [docs/evidence/pd_manual_ack_resolve_timeline.png](file:///d:/Projects/ReactJS/NexOps/docs/evidence/pd_manual_ack_resolve_timeline.png)
-- **Visual Interface Summary**: Displays Incident `b276620d-6ca1-4b95-823a-bce08f9bf573` in **`Resolved`** status with candidate cause score **`88.5/100`** and correlated alert timeline.
-
----
-
-## 4. Summary Table
-
-| Component | Target Audit Requirement | Empirical Database Finding | Status |
+| Sender Identity | Email Address | Function Call Site | Status |
 |---|---|---|---|
-| **Part 1** | Fresh PagerDuty Connection | Active user `np8ebZ6MwNZPeYJGQTzW4xRPAfj2` (secret len 184); no new trial connection created after 13:12 UTC | **HONEST STATUS DOCUMENTED** |
-| **Part 2** | Real Incident Lifecycle | Latest incident `b276620d...` created `13:12:05`, resolved `13:51:59`; incoming events grouped into timeline | **HONEST STATUS DOCUMENTED** |
-| **Part 3** | Fresh Screenshot Evidence | Visual screenshot `docs/evidence/pd_manual_ack_resolve_timeline.png` capturing resolved timeline | **CLOSED & VERIFIED** |
+| **Auth** | `nexops-auth@asolvitra.tech` | `send_otp_email()` | **KEPT (Operational)** |
+| **Alerts** | `nexops-alerts@asolvitra.tech` | `send_incident_alert_email()` | **KEPT (Operational)** |
+| **Deployments** | `nexops-deployments@asolvitra.tech` | `send_deployment_alert_email()` | **KEPT (Operational)** |
+| **Team** | `nexops-team@asolvitra.tech` | `send_workspace_invite_email()` | **KEPT (Operational)** |
+| **Billing** | `nexops-billing@asolvitra.tech` | None (0 call sites) | **REMOVED (Scope Trimmed)** |

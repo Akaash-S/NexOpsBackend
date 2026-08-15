@@ -69,7 +69,6 @@ class Settings(BaseSettings):
     EMAIL_ALERTS_SENDER: Optional[str] = None
     EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
     EMAIL_TEAM_SENDER: Optional[str] = None
-    EMAIL_BILLING_SENDER: Optional[str] = None
 
     @property
     def domain(self) -> str:
@@ -95,9 +94,6 @@ class Settings(BaseSettings):
     def team_sender(self) -> str:
         return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.domain}>"
 
-    @property
-    def billing_sender(self) -> str:
-        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.domain}>"
 
     # SMTP Email Configuration
     SMTP_HOST: Optional[str] = None
