@@ -45,8 +45,13 @@ async def _run_automation(event_id: str):
             try:
                 await session.execute(text("RESET ALL;"))
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as reset_err:
+                logger.critical(f"CRITICAL: Failed to reset connection state in _run_automation: {reset_err}. Invalidating connection to prevent pool taint.")
+                try:
+                    conn = await session.connection()
+                    await conn.invalidate()
+                except Exception:
+                    pass
 
 
 @router.post("", response_model=EventResponse, status_code=201)
