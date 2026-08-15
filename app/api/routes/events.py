@@ -26,20 +26,27 @@ async def _run_automation(event_id: str):
     logger = logging.getLogger("nexops.automation")
     
     async with async_session() as session:
-        event = None
-        async with rls_bypass(session):
-            event = await event_service.get_event_by_id(session, event_id)
-            
-        if event:
-            logger.info(f"Running background automation for event {event.id} ({event.type}) in workspace {event.workspace_id}")
-            if event.workspace_id:
-                await session.execute(
-                    text("SELECT set_config('nexops.current_workspace_id', :ws_id, false), set_config('nexops.bypass_rls', 'false', false)"),
-                    {"ws_id": event.workspace_id}
-                )
-            await process_event(session, event)
-        else:
-            logger.warning(f"Background automation task could not find event {event_id}")
+        try:
+            event = None
+            async with rls_bypass(session):
+                event = await event_service.get_event_by_id(session, event_id)
+                
+            if event:
+                logger.info(f"Running background automation for event {event.id} ({event.type}) in workspace {event.workspace_id}")
+                if event.workspace_id:
+                    await session.execute(
+                        text("SELECT set_config('nexops.current_workspace_id', :ws_id, false), set_config('nexops.bypass_rls', 'false', false)"),
+                        {"ws_id": event.workspace_id}
+                    )
+                await process_event(session, event)
+            else:
+                logger.warning(f"Background automation task could not find event {event_id}")
+        finally:
+            try:
+                await session.execute(text("RESET ALL;"))
+                await session.commit()
+            except Exception:
+                pass
 
 
 @router.post("", response_model=EventResponse, status_code=201)
