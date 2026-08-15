@@ -1,128 +1,112 @@
-# NexOps — System Security Audit, Email Scope Trim & Empirical Evidence Report
+# NexOps — System Security Audit & `postmortems` Feature Investigation Report
 
 ---
 
-## 1. Part 1 — Real Console `git grep` Output for All 5 Sender Identities
+## 1. Part 1 — Technical Architecture & Code Citation Analysis
 
-### 1a. Command Executed
-```bash
-git grep -n -i "EMAIL_<IDENTITY>_SENDER|<identity>_sender|nexops-<identity>" -- 'app/'
-```
+### 1a. SQLModel Schema Citation ([app/models/postmortem.py](file:///d:/Projects/ReactJS/NexOps/backend/app/models/postmortem.py#L14-L66))
+- **Table Name**: `postmortems`
+- **Columns & Data Types**:
+  - `id`: `str` (UUID primary key)
+  - `incident_id`: `str` (Unique Foreign Key -> `incidents.id`)
+  - `workspace_id`: `str` (Foreign Key -> `workspaces.id`)
+  - `author_id`: `Optional[str]` (Foreign Key -> `users.id`)
+  - `summary`: `Optional[Text]`
+  - `timeline`: `Optional[Text]` (Event log in plain text/Markdown)
+  - `root_cause`: `Optional[Text]`
+  - `contributing_factors`: `Optional[Text]`
+  - `impact`: `Optional[Text]`
+  - `action_items`: `Optional[Text]`
+  - `lessons_learned`: `Optional[Text]`
+  - `status`: `str` (default `'draft'`, indexed; values: `'draft'`, `'published'`)
+  - `created_at`, `updated_at`: `datetime`
 
-### 1b. Raw Console Outputs
+### 1b. Backend Route Handlers Citation ([app/api/routes/incidents.py](file:///d:/Projects/ReactJS/NexOps/backend/app/api/routes/incidents.py#L236-L364))
+1. `GET /api/v1/incidents/{incident_id}/postmortem`
+   - Fetches or auto-creates an empty draft postmortem.
+   - Pre-fills `root_cause` from `CandidateCause.reason` if a candidate cause was marked `confirmed = True`.
+2. `PATCH /api/v1/incidents/{incident_id}/postmortem`
+   - Auto-saves partial text updates to postmortem fields.
+3. `POST /api/v1/incidents/{incident_id}/postmortem/publish`
+   - Validates that `summary` and `root_cause` are non-empty and sets `status = 'published'`.
 
-#### 1. `auth_sender` (`nexops-auth@asolvitra.tech`)
-```text
-$ git grep -n -i "EMAIL_AUTH_SENDER|auth_sender|nexops-auth" -- 'app/'
-app/core/config.py:68:    EMAIL_AUTH_SENDER: Optional[str] = None
-app/core/config.py:82:    def auth_sender(self) -> str:
-app/core/config.py:83:        return self.EMAIL_AUTH_SENDER or f"NexOps Auth <nexops-auth@{self.domain}>"
-app/services/email_service.py:217:    from_sender = settings.auth_sender
-```
+*Note: All 3 endpoints require `_ext = Depends(verify_extended_navigation)`, which checks `workspace.show_extended_navigation` (default `False`).*
 
-#### 2. `alerts_sender` (`nexops-alerts@asolvitra.tech`)
-```text
-$ git grep -n -i "EMAIL_ALERTS_SENDER|alerts_sender|nexops-alerts" -- 'app/'
-app/core/config.py:69:    EMAIL_ALERTS_SENDER: Optional[str] = None
-app/core/config.py:86:    def alerts_sender(self) -> str:
-app/core/config.py:87:        return self.EMAIL_ALERTS_SENDER or f"NexOps Alerts <nexops-alerts@{self.domain}>"
-app/services/email_service.py:250:    from_sender = settings.alerts_sender
-```
-
-#### 3. `deployments_sender` (`nexops-deployments@asolvitra.tech`)
-```text
-$ git grep -n -i "EMAIL_DEPLOYMENTS_SENDER|deployments_sender|nexops-deployments" -- 'app/'
-app/core/config.py:70:    EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
-app/core/config.py:90:    def deployments_sender(self) -> str:
-app/core/config.py:91:        return self.EMAIL_DEPLOYMENTS_SENDER or f"NexOps Deployments <nexops-deployments@{self.domain}>"
-app/services/email_service.py:290:    from_sender = settings.deployments_sender
-```
-
-#### 4. `team_sender` (`nexops-team@asolvitra.tech`)
-```text
-$ git grep -n -i "EMAIL_TEAM_SENDER|team_sender|nexops-team" -- 'app/'
-app/core/config.py:71:    EMAIL_TEAM_SENDER: Optional[str] = None
-app/core/config.py:94:    def team_sender(self) -> str:
-app/core/config.py:95:        return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.domain}>"
-app/services/email_service.py:320:    from_sender = settings.team_sender
-```
-
-#### 5. `billing_sender` (`nexops-billing@asolvitra.tech`)
-```text
-$ git grep -n -i "EMAIL_BILLING_SENDER|billing_sender|nexops-billing" -- 'app/'
-(Command exited with code 1 — ZERO matches in active backend codebase app/)
-```
+### 1c. Frontend UI Accessibility Audit
+- **Codebase Search Output (`updated-frontend`)**:
+  ```text
+  $ git grep -n -i "postmortem" -- 'src/'
+  (Exited with code 1 — ZERO matches found in React frontend)
+  ```
+- **UI Reachability**: **UNREACHABLE**. The frontend UI contains zero pages, components, links, buttons, or navigation items for postmortems.
 
 ---
 
-## 2. Part 2 — Deployment & Configuration File Status
+## 2. Part 2 — Production Database Usage Audit (`scratch/investigate_postmortems_usage.py`)
 
-### 2a. `backend/app/core/config.py` Diff
-```diff
-@@ -69,7 +69,6 @@
-     EMAIL_ALERTS_SENDER: Optional[str] = None
-     EMAIL_DEPLOYMENTS_SENDER: Optional[str] = None
-     EMAIL_TEAM_SENDER: Optional[str] = None
--    EMAIL_BILLING_SENDER: Optional[str] = None
- 
-     @property
-     def domain(self) -> str:
-@@ -94,9 +94,6 @@
-     def team_sender(self) -> str:
-         return self.EMAIL_TEAM_SENDER or f"NexOps Team <nexops-team@{self.domain}>"
- 
--    @property
--    def billing_sender(self) -> str:
--        return self.EMAIL_BILLING_SENDER or f"NexOps Billing <nexops-billing@{self.domain}>"
-```
+### Execution Output
+Query executed across Neon production database under `nexops_app_user` with RLS bypassed:
 
-### 2b. Remaining Deployment & Template Files Status
-- **`docker-compose.yml`**: Never contained `EMAIL_BILLING_SENDER` or any `EMAIL_*` environment overrides (email settings load directly from `.env` / `config.py` defaults).
-- **`render.yaml`**: Does not exist in the repository; environment variables on Render are managed via the Render web dashboard.
-- **`backend/.env.example`**: Never contained `EMAIL_BILLING_SENDER` (relies on `config.py` defaults).
-
----
-
-## 3. Part 3 — Resend Dashboard State Clarification
-
-- **Domain-Level Authorization**: Resend authenticates sender domains at the root domain level (`asolvitra.tech`) via DKIM, SPF, and DMARC DNS records. Resend does NOT maintain individual "sender identity" object records or alias lists in its dashboard UI.
-- **Founder Action Required**: **NONE**. No manual deletion in the Resend dashboard UI is required because Resend does not maintain separate per-alias sender objects.
-
----
-
-## 4. Part 4 — Raw Resend API Response for OTP Regression Test (`scratch/test_raw_resend_otp_api.py`)
-
-### Execution Output & Raw API Payload
 ```text
 =================================================================
-PART 4: RAW RESEND API RESPONSE CAPTURE FOR OTP EMAIL
+PART 2: PRODUCTION DATABASE POSTMORTEMS USAGE AUDIT
 =================================================================
 
-[HTTP POST Request to Resend REST API]
-  URL:     https://api.resend.com/emails
-  From:    NexOps Auth <nexops-auth@asolvitra.tech>
-  To:      devtest9988@gmail.com
-  Subject: 937402 is your NexOps verification code
+[Postmortems DB Query Output]
+  Total Postmortem Records Found: 0
 
-[Raw Resend API Response]
-  HTTP Status Code: 200
-  Raw JSON Output:  {
-  "id": "c27761f4-459e-4181-bf42-7df445053d6e"
-}
-
-[SUCCESS] Real OTP email delivered via Resend API! Message ID: c27761f4-459e-4181-bf42-7df445053d6e
+[EMPIRICAL FINDING] Zero postmortem rows exist in the production database.
 ```
 
-- **Verification Standard**: Raw HTTP Status **`200 OK`**, Message ID **`c27761f4-459e-4181-bf42-7df445053d6e`** issued directly by `api.resend.com`.
+- **Usage Record**: **0 postmortem rows** exist in the production database across all workspaces.
+- **Cross-Feature Connections**: Zero active references or links from dashboards, alerts, or incident views.
 
 ---
 
-## 5. Part 5 — Documentation Update Summary Matrix
+## 3. Part 3 — Git Origin & Commit History Audit
 
-| Sender Identity | Email Address | Function Call Site | Status |
-|---|---|---|---|
-| **Auth** | `nexops-auth@asolvitra.tech` | `send_otp_email()` | **KEPT (Operational)** |
-| **Alerts** | `nexops-alerts@asolvitra.tech` | `send_incident_alert_email()` | **KEPT (Operational)** |
-| **Deployments** | `nexops-deployments@asolvitra.tech` | `send_deployment_alert_email()` | **KEPT (Operational)** |
-| **Team** | `nexops-team@asolvitra.tech` | `send_workspace_invite_email()` | **KEPT (Operational)** |
-| **Billing** | `nexops-billing@asolvitra.tech` | None (0 call sites) | **REMOVED (Scope Trimmed)** |
+### Git Log & Blame Output
+```text
+$ git log --oneline --follow -- app/models/postmortem.py
+c06d7a1 feat: add Postmortem SQLModel & CRUD endpoints (GET, PATCH draft auto-save, POST publish)
+
+$ git show c06d7a1 --stat
+commit c06d7a14f271a54ef3c6dfcbb238341781d93a6e
+Author: Akaash-S <akaashgithub21@gmail.com>
+Date:   Thu Jul 30 23:06:30 2026 +0530
+
+    feat: add Postmortem SQLModel & CRUD endpoints (GET, PATCH draft auto-save, POST publish)
+
+ app/api/routes/incidents.py | 138 ++++++++++++++++++++++++++++++++++++++++++++
+ app/models/__init__.py      |   2 +
+ app/models/postmortem.py    |  65 +++++++++++++++++++++
+ 3 files changed, 205 insertions(+)
+```
+
+- **Commit Date**: July 30, 2026 (`c06d7a1`).
+- **Context**: Created during initial backend API scaffolding prior to the project's narrow-scope pivot to a correlation engine. Frontend UI was never constructed for it.
+
+---
+
+## 4. Part 4 — Informational Scope-Fit Assessment
+
+1. **Alignment with Core Moat ("What caused this incident, and how do we know?")**:
+   - `postmortems` functions as a freeform text document editor for resolved incidents. While it can pre-fill root cause text, it does not participate in alert ingestion, temporal proximity scoring, or dependency graph correlation.
+2. **Category Mapping**:
+   - Operates as orphaned backend scaffolding (similar to the extended navigation routes gated behind `show_extended_navigation`).
+3. **Maintenance & Complexity Footprint**:
+   - Backend Model: 65 lines ([app/models/postmortem.py](file:///d:/Projects/ReactJS/NexOps/backend/app/models/postmortem.py))
+   - Backend Routes: 138 lines ([app/api/routes/incidents.py](file:///d:/Projects/ReactJS/NexOps/backend/app/api/routes/incidents.py#L224-L364))
+   - Database Table: 1 table (`postmortems`) with 2 foreign keys (`incidents.id`, `workspaces.id`).
+
+---
+
+## 5. Summary Matrix
+
+| Investigation Axis | Empirical Finding | Evidence Reference |
+|---|---|---|
+| **Backend Models & Routes** | Table `postmortems` + 3 API routes (GET/PATCH/POST publish) | [postmortem.py](file:///d:/Projects/ReactJS/NexOps/backend/app/models/postmortem.py#L14), [incidents.py:L236](file:///d:/Projects/ReactJS/NexOps/backend/app/api/routes/incidents.py#L236) |
+| **Frontend UI Reachability** | 0 UI components or routes in React frontend | `git grep -i "postmortem"` in `updated-frontend` -> **0 matches** |
+| **Production DB Usage** | 0 records in production Neon database | `scratch/investigate_postmortems_usage.py` -> **0 rows** |
+| **Git Commit History** | Added July 30, 2026 (Commit `c06d7a1`) | `git log --follow app/models/postmortem.py` |
+| **Feature Flag Gate** | Protected by `verify_extended_navigation` | `_ext = Depends(verify_extended_navigation)` |
