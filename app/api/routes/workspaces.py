@@ -16,6 +16,9 @@ from app.schemas.workspace_schema import WorkspaceResponse, WorkspaceUpdate
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
 
+from app.core.rls import rls_bypass
+from app.core.security import invalidate_user_cache
+
 @router.get("/current", response_model=WorkspaceResponse)
 async def get_current_workspace(
     session: AsyncSession = Depends(get_session),
@@ -24,29 +27,30 @@ async def get_current_workspace(
     """Fetch active workspace configuration for the authenticated user."""
     try:
         user_ws_id = user.workspace_id or f"ws-{user.id[:12]}"
-        result = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
-        workspace = result.scalars().first()
-        if not workspace:
-            workspace = Workspace(
-                id=user_ws_id, 
-                name=f"{user.full_name or 'User'}'s Workspace", 
-                show_extended_navigation=True
-            )
-            session.add(workspace)
-            await session.commit()
-            await session.refresh(workspace)
+        async with rls_bypass(session):
+            result = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+            workspace = result.scalars().first()
+            if not workspace:
+                workspace = Workspace(
+                    id=user_ws_id, 
+                    name=f"{user.full_name or 'User'}'s Workspace", 
+                    show_extended_navigation=False
+                )
+                session.add(workspace)
+                await session.commit()
+                await session.refresh(workspace)
 
-        if user.workspace_id != workspace.id:
-            user.workspace_id = workspace.id
-            session.add(user)
-            await session.commit()
+            if user.workspace_id != workspace.id:
+                user.workspace_id = workspace.id
+                session.add(user)
+                await session.commit()
 
         return workspace
     except Exception as e:
         import logging
         logging.getLogger("nexops").error(f"Error fetching current workspace for user {user.id}: {e}", exc_info=True)
         fallback_id = user.workspace_id or f"ws-{user.id[:12]}"
-        return Workspace(id=fallback_id, name="Personal Workspace", show_extended_navigation=True)
+        return Workspace(id=fallback_id, name="Personal Workspace", show_extended_navigation=False)
 
 
 @router.patch("/current", response_model=WorkspaceResponse)
@@ -56,19 +60,33 @@ async def update_current_workspace(
     user = Depends(get_current_user)
 ):
     """Update active workspace configuration (e.g. show_extended_navigation feature flag)."""
-    if not user.workspace_id:
-        raise HTTPException(status_code=404, detail="No active workspace found for user.")
-    result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
-    workspace = result.scalars().first()
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
+    user_ws_id = user.workspace_id or f"ws-{user.id[:12]}"
+    async with rls_bypass(session):
+        result = await session.execute(select(Workspace).where(Workspace.id == user_ws_id))
+        workspace = result.scalars().first()
+        if not workspace:
+            workspace = Workspace(
+                id=user_ws_id,
+                name=f"{user.full_name or 'User'}'s Workspace",
+                show_extended_navigation=False
+            )
+            session.add(workspace)
+            await session.flush()
 
-    update_data = body.model_dump(exclude_none=True)
-    for field, value in update_data.items():
-        setattr(workspace, field, value)
-    workspace.updated_at = datetime.utcnow()
+        update_data = body.model_dump(exclude_none=True)
+        for field, value in update_data.items():
+            setattr(workspace, field, value)
+        workspace.updated_at = datetime.utcnow()
 
-    session.add(workspace)
-    await session.commit()
-    await session.refresh(workspace)
+        session.add(workspace)
+
+        if user.workspace_id != workspace.id:
+            user.workspace_id = workspace.id
+            session.add(user)
+
+        await session.commit()
+        await session.refresh(workspace)
+
+    # Invalidate user cache to ensure workspace preferences update immediately across requests
+    await invalidate_user_cache(user.id)
     return workspace

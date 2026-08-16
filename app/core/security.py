@@ -196,9 +196,10 @@ async def get_current_user(
                 changed = True
 
             if changed:
-                session.add(user)
-                await session.commit()
-                await session.refresh(user)
+                async with rls_bypass(session):
+                    session.add(user)
+                    await session.commit()
+                    await session.refresh(user)
 
         # Store in Redis-backed cache (cross-process, TTL-expiring)
         await _set_user_in_cache(uid, user.model_dump(mode="json"))
@@ -255,8 +256,10 @@ async def verify_extended_navigation(
             detail="Extended navigation features are disabled for this workspace."
         )
     from app.models.workspace import Workspace
-    result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
-    workspace = result.scalars().first()
+    from app.core.rls import rls_bypass
+    async with rls_bypass(session):
+        result = await session.execute(select(Workspace).where(Workspace.id == user.workspace_id))
+        workspace = result.scalars().first()
     if not workspace or not workspace.show_extended_navigation:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

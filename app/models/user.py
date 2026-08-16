@@ -19,6 +19,9 @@ class User(SQLModel, table=True):
         index=True,
     )
     email: str = Field(index=True, unique=True, max_length=255)
+    # GUARD: Identity and workspace-name fields (User.full_name, Workspace.name) must NEVER be modified
+    # except in direct response to an explicit user-facing request or admin action — NEVER as an inferred
+    # "correction" during unrelated troubleshooting work.
     full_name: str = Field(max_length=255)
     avatar_url: Optional[str] = Field(default=None, max_length=500)
     role: str = Field(default="member")  # admin | lead | member

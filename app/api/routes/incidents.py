@@ -238,7 +238,6 @@ async def get_postmortem(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
-    _ext = Depends(verify_extended_navigation)
 ):
     """
     Fetch the postmortem for an incident.
@@ -287,7 +286,6 @@ async def upsert_postmortem(
     body: PostmortemUpsert,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
-    _ext = Depends(verify_extended_navigation)
 ):
     """
     Update (partial) postmortem fields — acts as an auto-save endpoint.
@@ -330,7 +328,6 @@ async def publish_postmortem(
     incident_id: str,
     session: AsyncSession = Depends(get_session),
     user = Depends(get_current_user),
-    _ext = Depends(verify_extended_navigation)
 ):
     """
     Mark the postmortem as published. Requires summary and root_cause to be non-empty.
