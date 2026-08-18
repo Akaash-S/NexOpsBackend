@@ -121,6 +121,8 @@ class SyncRequest(BaseModel):
     class Config:
         validate_by_name = True
 
+_active_sync_workspaces: set[str] = set()
+
 async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession):
     try:
         # Resolve target workspace: default to user's active workspace if unsupplied or empty
@@ -130,6 +132,15 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         if not user.workspace_id or target_ws_id != user.workspace_id:
             raise HTTPException(status_code=403, detail="Workspace access denied: user cannot sync to a mismatched workspace")
 
+        # In-flight concurrency guard: prevent overlapping sync runs for the same workspace
+        if target_ws_id in _active_sync_workspaces:
+            logger.warning(f"Concurrent sync attempt blocked for workspace {target_ws_id}")
+            # Fetch existing repos to return active workspace state without duplicating work
+            res = await session.execute(select(Repo).where(Repo.workspace_id == target_ws_id))
+            existing_repos = res.scalars().all()
+            return {"status": "already_syncing", "synced_count": len(existing_repos), "repos": [r.name for r in existing_repos]}
+
+        _active_sync_workspaces.add(target_ws_id)
         request.workspace_id = target_ws_id
 
         token = request.token
@@ -163,15 +174,15 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
             # Associate repo with the syncing user
             repo_data.user_id = user.id
 
-            # Check if repo already exists for this user
+            # Check if repo already exists for this workspace (matching DB unique constraint uq_repos_workspace_name_platform)
             existing_result = await session.execute(  # type: ignore
                 select(Repo).where(
+                    Repo.workspace_id == target_ws_id,
                     Repo.name == repo_data.name,
-                    Repo.platform == repo_data.platform,
-                    Repo.user_id == user.id
+                    Repo.platform == repo_data.platform
                 )
             )
-            repo = existing_result.scalar_one_or_none()
+            repo = existing_result.scalars().first()
             
             is_new = False
             if repo:
@@ -442,6 +453,8 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
     except Exception as e:
         await session.rollback()  # type: ignore
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        _active_sync_workspaces.discard(target_ws_id)
 
 @router.post("/integrations/sync-manual")
 async def sync_vcs_repositories_manual(

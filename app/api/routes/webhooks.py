@@ -229,11 +229,18 @@ async def github_webhook_handler(
         elif action in ("created", "renamed", "privatized", "publicized"):
             from app.models.user import User
             from app.api.routes.integrations import _perform_sync, SyncRequest
+            from app.core.database import async_session
+            
+            async def _bg_sync(sync_req: SyncRequest, sync_user: User):
+                async with async_session() as bg_session:
+                    await _perform_sync(sync_req, sync_user, bg_session)
+                    await bg_session.commit()
+
             if repo and repo.user_id:
                 user = await session.get(User, repo.user_id)
                 if user:
                     req = SyncRequest(provider="github", token="use_stored_token", workspaceId=user.workspace_id)
-                    background_tasks.add_task(_perform_sync, req, user, session)
+                    background_tasks.add_task(_bg_sync, req, user)
             return JSONResponse(status_code=200, content={"status": "success", "message": f"Triggered sync for repository event {action}"})
 
     elif x_github_event == "issues":

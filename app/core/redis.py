@@ -94,7 +94,11 @@ from datetime import datetime, date
 
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code (e.g. datetime)."""
-    if isinstance(obj, (datetime, date)):
+    if isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            return obj.isoformat() + "Z"
+        return obj.isoformat()
+    if isinstance(obj, date):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
 
