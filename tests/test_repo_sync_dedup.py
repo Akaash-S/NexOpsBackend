@@ -6,7 +6,12 @@ import dotenv
 dotenv.load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 import os
-os.environ['DATABASE_URL'] = os.getenv('DATABASE_URL_DIRECT')
+# SAFE TEST TARGET: Point test runner to Staging DB (ep-sparkling-block-az3sf0sp), NEVER Production!
+staging_url = os.getenv('STAGING_DATABASE_URL_DIRECT') or os.getenv('STAGING_DATABASE_URL')
+if staging_url:
+    clean_staging_url = staging_url.replace("postgresql+asyncpg://", "postgresql://").split('?')[0] + '?sslmode=require'
+    os.environ['DATABASE_URL'] = clean_staging_url
+    os.environ['DATABASE_URL_DIRECT'] = clean_staging_url
 
 import pytest
 import asyncio
@@ -17,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.database import async_session
 from app.models.repo import Repo
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.api.routes.integrations import _perform_sync, SyncRequest, _active_sync_workspaces
 
 @pytest.mark.asyncio
@@ -26,14 +32,35 @@ async def test_repo_sync_deduplication_and_constraint():
     1. Exercises workspace-scoped upsert match (workspace_id, name, platform).
     2. Exercises DB unique index uq_repos_workspace_name_platform.
     3. Exercises in-flight sync concurrency lock with full VCS service mocking.
+    SAFE: Runs against Staging database endpoint.
     """
-    test_user_id = "f0rwTkSUeieCH909q13HMo93jJp1"
-    test_ws_id = "ws-f0rwTkSUeieC"
+    test_ws_id = "ws-test-dedup-staging"
+    test_user_id = "usr-test-dedup-staging"
+
+    # Ensure test workspace and user exist in test database
+    async with async_session() as init_session:
+        ws = await init_session.get(Workspace, test_ws_id)
+        if not ws:
+            ws = Workspace(id=test_ws_id, name="Test Dedup Staging WS", provider="github", status="connected")
+            init_session.add(ws)
+        
+        user = await init_session.get(User, test_user_id)
+        if not user:
+            user = User(
+                id=test_user_id,
+                email="test_dedup_staging@example.com",
+                full_name="Test Dedup Staging User",
+                role="admin",
+                workspace_id=test_ws_id,
+                onboarding_completed=True
+            )
+            init_session.add(user)
+        await init_session.commit()
 
     # Step 1: Verify DB unique constraint raises IntegrityError on duplicate raw INSERT
     async with async_session() as session:
         user = await session.get(User, test_user_id)
-        assert user is not None, "Test user f0rwTkSUeieCH909q13HMo93jJp1 must exist"
+        assert user is not None, "Test user must exist"
 
         dup_repo_name = f"unit_test_repo_{uuid.uuid4().hex[:6]}"
         r1 = Repo(
@@ -92,16 +119,15 @@ async def test_repo_sync_deduplication_and_constraint():
 
     # Step 3: Verify workspace-scoped upsert match (multi-user scenario: User B syncing User A's repo in same workspace)
     async with async_session() as session3:
-        # Create User A (original owner) and User B (secondary sync user in same workspace)
         user_a_id = test_user_id
         user_b_id = f"usr_b_{uuid.uuid4().hex[:6]}"
         user_b = User(
             id=user_b_id,
             email=f"user_b_{uuid.uuid4().hex[:6]}@example.com",
             full_name="Test User B",
-            hashed_password="dummy_hashed_password",
+            role="member",
             workspace_id=test_ws_id,
-            is_active=True
+            onboarding_completed=True
         )
         session3.add(user_b)
         await session3.commit()
@@ -154,3 +180,11 @@ async def test_repo_sync_deduplication_and_constraint():
         await session3.delete(matched_repos[0])
         await session3.delete(user_b)
         await session3.commit()
+
+    # Final cleanup of test workspace & user fixtures
+    async with async_session() as clean_session:
+        u = await clean_session.get(User, test_user_id)
+        if u: await clean_session.delete(u)
+        w = await clean_session.get(Workspace, test_ws_id)
+        if w: await clean_session.delete(w)
+        await clean_session.commit()
