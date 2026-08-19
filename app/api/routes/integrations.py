@@ -776,6 +776,18 @@ async def connect_pagerduty(
     signed_uid = _make_pd_uid_token(user.id)
     webhook_url = f"{base_url}/api/v1/webhooks/pagerduty?uid={signed_uid}"
 
+    db_user = await session.get(User, user.id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Cleanup any pre-existing subscription prior to creating a new one on reconnect
+    if db_user.pagerduty_access_token and db_user.pagerduty_webhook_subscription_id:
+        try:
+            old_token = decrypt_secret(db_user.pagerduty_access_token)
+            await pagerduty_service.delete_webhook_subscription(old_token, db_user.pagerduty_webhook_subscription_id)
+        except Exception as old_del_err:
+            logger.warning(f"Cleanup of prior PagerDuty subscription failed during reconnect: {old_del_err}")
+
     subscription_id = None
     webhook_secret = None
 
