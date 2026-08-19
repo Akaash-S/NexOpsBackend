@@ -24,7 +24,8 @@ def upgrade() -> None:
         'uq_repos_workspace_name_platform',
         'repos',
         ['workspace_id', 'name', 'platform'],
-        unique=True
+        unique=True,
+        if_not_exists=True
     )
 
 
@@ -32,5 +33,7 @@ def downgrade() -> None:
     """Downgrade schema: drop composite unique index on repos(workspace_id, name, platform)."""
     op.drop_index(
         'uq_repos_workspace_name_platform',
-        table_name='repos'
+        table_name='repos',
+        if_exists=True
     )
+
