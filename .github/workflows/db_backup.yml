@@ -1,0 +1,49 @@
+name: Daily External Database Backup (DR)
+
+on:
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    name: Execute Off-Platform pg_dump Backup & S3 Storage Upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Execute pg_dump & Compress Database Dump
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DIRECT }}
+        run: |
+          TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+          BACKUP_FILE="nexops_prod_backup_${TIMESTAMP}.sql.gz"
+          echo "Starting off-platform pg_dump backup at $(date -u)..."
+          pg_dump "$DATABASE_URL" --no-owner --no-acl --clean --if-exists | gzip -9 > "$BACKUP_FILE"
+          FILESIZE=$(stat -c%s "$BACKUP_FILE")
+          echo "Backup file created: $BACKUP_FILE (Size: $FILESIZE bytes)"
+          echo "BACKUP_FILE=$BACKUP_FILE" >> $GITHUB_ENV
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload Backup to External S3 Storage Bucket
+        env:
+          S3_BUCKET: ${{ secrets.S3_BACKUP_BUCKET }}
+        run: |
+          echo "Uploading $BACKUP_FILE to s3://$S3_BUCKET/database-backups/..."
+          aws s3 cp "$BACKUP_FILE" "s3://$S3_BUCKET/database-backups/$BACKUP_FILE"
+          
+          echo "=== VERIFYING OBJECT STORAGE LANDING ==="
+          aws s3 ls "s3://$S3_BUCKET/database-backups/" --human-readable
