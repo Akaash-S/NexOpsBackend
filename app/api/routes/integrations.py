@@ -887,6 +887,38 @@ async def disconnect_pagerduty(
     return {"status": "disconnected"}
 
 
+@router.get("/integrations/pagerduty/status")
+async def get_pagerduty_status(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Get the PagerDuty integration status for the current user.
+    If the stored token is missing or undecryptable (e.g. key rotation),
+    returns connected: false with status 'reconnect_required' or 'not_connected'.
+    """
+    db_user = await session.get(User, user.id)
+    if not db_user or not db_user.pagerduty_access_token:
+        return {"connected": False, "status": "not_connected", "subscription_id": None}
+
+    try:
+        from app.core.crypto import decrypt_secret
+        token = decrypt_secret(db_user.pagerduty_access_token)
+        return {
+            "connected": True,
+            "status": "connected",
+            "subscription_id": db_user.pagerduty_webhook_subscription_id
+        }
+    except Exception as dec_err:
+        logger.warning(f"Undecryptable PagerDuty token for user {user.id}: {dec_err}")
+        return {
+            "connected": False,
+            "status": "reconnect_required",
+            "subscription_id": None,
+            "message": "PagerDuty token requires re-authentication."
+        }
+
+
 class PagerDutySecretUpdate(BaseModel):
     secret: str
 
