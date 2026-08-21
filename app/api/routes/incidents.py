@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -22,6 +23,31 @@ class FeedbackRequest(BaseModel):
     class Config:
         validate_by_name = True
 
+
+def serialize_candidate_cause(c: CandidateCause) -> dict:
+    d = c.model_dump() if hasattr(c, "model_dump") else dict(c)
+    reason_val = d.get("reason")
+    if isinstance(reason_val, list):
+        d["match_reasons"] = [str(item) for item in reason_val]
+    elif isinstance(reason_val, str) and reason_val.strip():
+        try:
+            parsed = json.loads(reason_val)
+            while isinstance(parsed, str) and (parsed.strip().startswith("[") or parsed.strip().startswith("{")):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, list):
+                d["match_reasons"] = [str(item) for item in parsed]
+            else:
+                d["match_reasons"] = [str(parsed)]
+        except Exception:
+            if ";" in reason_val:
+                d["match_reasons"] = [s.strip() for s in reason_val.split(";") if s.strip()]
+            elif ". " in reason_val:
+                d["match_reasons"] = [s.strip() for s in reason_val.split(". ") if s.strip()]
+            else:
+                d["match_reasons"] = [reason_val]
+    else:
+        d["match_reasons"] = []
+    return d
 
 @router.get("", response_model=List[IncidentResponse])
 async def list_incidents(
@@ -58,7 +84,7 @@ async def list_incidents(
         from collections import defaultdict
         causes_by_incident = defaultdict(list)
         for cause in causes:
-            causes_by_incident[cause.incident_id].append(cause.model_dump() if hasattr(cause, "model_dump") else cause)
+            causes_by_incident[cause.incident_id].append(serialize_candidate_cause(cause))
             
         for inc in incidents:
             inc_dict = inc.model_dump()
@@ -90,7 +116,7 @@ async def get_incident(
         select(CandidateCause).where(CandidateCause.incident_id == incident.id)
     )
     resp_data = incident.model_dump()
-    resp_data["candidate_causes"] = [c.model_dump() if hasattr(c, "model_dump") else c for c in cc_result.scalars().all()]
+    resp_data["candidate_causes"] = [serialize_candidate_cause(c) for c in cc_result.scalars().all()]
     return resp_data
 
 
@@ -114,7 +140,7 @@ async def resolve_incident(
         select(CandidateCause).where(CandidateCause.incident_id == incident.id)
     )
     resp_data = incident.model_dump()
-    resp_data["candidate_causes"] = [c.model_dump() if hasattr(c, "model_dump") else c for c in cc_result.scalars().all()]
+    resp_data["candidate_causes"] = [serialize_candidate_cause(c) for c in cc_result.scalars().all()]
     return resp_data
 
 
@@ -217,7 +243,7 @@ async def submit_feedback(
         pass
         
     resp_data = incident.model_dump()
-    resp_data["candidate_causes"] = list(cc_all.scalars().all())
+    resp_data["candidate_causes"] = [serialize_candidate_cause(c) for c in cc_all.scalars().all()]
     return resp_data
 
 

@@ -4,6 +4,7 @@ Handles incident lifecycle, alert grouping, and cause correlation.
 """
 
 import logging
+import json
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -58,11 +59,16 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         score = 0.0
         reasons = []
         
+        # Fetch repo object for name resolution
+        from app.models.repo import Repo
+        repo_obj = await session.get(Repo, event.repo_id)
+        repo_name = repo_obj.name if repo_obj and repo_obj.name else f"repo-{event.repo_id[:8]}"
+        
         # A2: Topological proximity (Same repo, 1 hop direct, 2 hops transitive, 3 hops transitive)
         if event.repo_id == repo_id:
             w = weights.get("same_repo", 35.0)
             score += w
-            reasons.append("Deployed to the same repository as the alerting service.")
+            reasons.append(f"Deployed to {repo_name}, the same repository as the alerting service.")
         elif event.repo_id in upstream_map:
             info = upstream_map[event.repo_id]
             dist = info["distance"]
@@ -96,18 +102,23 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             score += w
             reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
             
-        # Past confirmed cause within 90 days on this repository (Queries append-only CandidateCauseFeedbackLog)
-        fb_query = select(CandidateCauseFeedbackLog).where(
+        # Past confirmed cause within 90 days on this repository
+        fb_query = select(CandidateCauseFeedbackLog, Incident).join(
+            Incident, CandidateCauseFeedbackLog.incident_id == Incident.id, isouter=True
+        ).where(
             CandidateCauseFeedbackLog.repo_id == event.repo_id,
             CandidateCauseFeedbackLog.confirmed == True,
             CandidateCauseFeedbackLog.created_at >= ninety_days_ago
-        )
+        ).order_by(CandidateCauseFeedbackLog.created_at.desc())
         fb_result = await session.execute(fb_query)
-        confirmed_past = fb_result.scalars().all()
-        if confirmed_past:
+        confirmed_past_tuples = fb_result.all()
+        if confirmed_past_tuples:
             w = weights.get("past_precedent", 15.0)
             score += w
-            reasons.append("This repository was the confirmed root cause of a past incident within 90 days.")
+            last_fb, past_inc = confirmed_past_tuples[0]
+            days_ago = max(1, (incident.created_at - last_fb.created_at).days)
+            past_title = past_inc.title if past_inc and past_inc.title else f"incident {last_fb.incident_id[:8]}"
+            reasons.append(f"This repository was the confirmed root cause of past incident '{past_title}' ({days_ago} days ago).")
             
         # A4: Deployment risk contribution (reuses calculate_deployment_risk from impact_service)
         try:
@@ -129,7 +140,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             
         if score > 0:
             score = min(100.0, score)
-            reason_str = "; ".join(reasons)
+            reason_str = json.dumps(reasons)
             scored_candidates.append({
                 "event": event,
                 "score": score,
