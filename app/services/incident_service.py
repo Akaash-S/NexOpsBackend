@@ -62,7 +62,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if event.repo_id == repo_id:
             w = weights.get("same_repo", 35.0)
             score += w
-            reasons.append("Same repository.")
+            reasons.append("Deployed to the same repository as the alerting service.")
         elif event.repo_id in upstream_map:
             info = upstream_map[event.repo_id]
             dist = info["distance"]
@@ -80,20 +80,21 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
                 score += w
                 reasons.append(f"Transitive dependency (3 hops away via {path_str}).")
             
-        # Temporal proximity
+        # Temporal proximity with real computed minutes
         time_diff = (incident.created_at - event.created_at).total_seconds()
+        mins_diff = max(1, int(time_diff / 60))
         if time_diff <= 900:  # 15 minutes
             w = weights.get("temp_15m", 25.0)
             score += w
-            reasons.append("Temporal proximity within 15 min.")
+            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
         elif time_diff <= 3600:  # 60 minutes
             w = weights.get("temp_60m", 15.0)
             score += w
-            reasons.append("Temporal proximity within 15-60 min.")
+            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
         elif time_diff <= 7200:  # 120 minutes
             w = weights.get("temp_120m", 5.0)
             score += w
-            reasons.append("Temporal proximity within 60-120 min.")
+            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
             
         # Past confirmed cause within 90 days on this repository (Queries append-only CandidateCauseFeedbackLog)
         fb_query = select(CandidateCauseFeedbackLog).where(
@@ -106,17 +107,18 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if confirmed_past:
             w = weights.get("past_precedent", 15.0)
             score += w
-            reasons.append("Past confirmed cause within 90 days.")
+            reasons.append("This repository was the confirmed root cause of a past incident within 90 days.")
             
         # A4: Deployment risk contribution (reuses calculate_deployment_risk from impact_service)
         try:
             deploy_risk_info = await calculate_deployment_risk(session, event.repo_id)
             r_score = float(deploy_risk_info.get("risk_score", 0.0))
+            r_basis = str(deploy_risk_info.get("risk_basis", ""))
             w_risk = weights.get("deploy_risk", 15.0)
             risk_contrib = round((r_score / 100.0) * w_risk, 1)
             if risk_contrib > 0:
                 score += risk_contrib
-                reasons.append(f"Deployment risk score {r_score:.1f}/100.")
+                reasons.append(r_basis)
         except Exception as risk_err:
             logger.error(f"Failed to calculate deploy risk for repo {event.repo_id}: {risk_err}")
             
@@ -127,7 +129,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             
         if score > 0:
             score = min(100.0, score)
-            reason_str = ", ".join(reasons)
+            reason_str = "; ".join(reasons)
             scored_candidates.append({
                 "event": event,
                 "score": score,
@@ -147,21 +149,35 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
     scored_candidates.sort(key=lambda x: x["score"], reverse=True)
     top_candidates = scored_candidates[:3]
     
-    # Save top candidates to database
+    # Save top candidates to database idempotently
     for cand in top_candidates:
-        db_cand = CandidateCause(
-            incident_id=incident.id,
-            repo_id=cand["event"].repo_id,
-            event_id=cand["event"].id,
-            score=cand["score"],
-            reason=cand["reason"],
-            confirmed=None,
-            workspace_id=incident.workspace_id
+        existing_res = await session.execute(
+            select(CandidateCause).where(
+                CandidateCause.incident_id == incident.id,
+                CandidateCause.event_id == cand["event"].id
+            )
         )
-        session.add(db_cand)
+        db_cand = existing_res.scalars().first()
+        if db_cand:
+            db_cand.score = cand["score"]
+            db_cand.reason = cand["reason"]
+            db_cand.updated_at = datetime.utcnow()
+            session.add(db_cand)
+        else:
+            db_cand = CandidateCause(
+                incident_id=incident.id,
+                repo_id=cand["event"].repo_id,
+                event_id=cand["event"].id,
+                score=cand["score"],
+                reason=cand["reason"],
+                confirmed=None,
+                workspace_id=incident.workspace_id
+            )
+            session.add(db_cand)
         
     await session.flush()
     logger.info(f"Correlated {len(top_candidates)} candidate causes for incident {incident.id}")
+    return top_candidates
 
 async def get_or_create_incident(
     session: AsyncSession, 
