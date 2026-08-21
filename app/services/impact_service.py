@@ -231,7 +231,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
         }
         
     score = 15.0
-    reasons = ["Base score (+15.0)"]
+    reasons = ["Baseline deployment risk evaluation."]
     
     # Same-Repo Incidents (Last 7 Days)
     # Only the active/open signal is intentional — resolved incidents are excluded
@@ -240,7 +240,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     
     if has_active_same:
         score += 35.0
-        reasons.append("Active open incident on same repository (+35.0)")
+        reasons.append("Active open incident on same repository.")
         
     # Temporal proximity to most recent incident on the repo
     if same_repo_incidents:
@@ -249,13 +249,13 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
         time_diff = max(0.0, time_diff)
         if time_diff <= 900:  # 15 minutes
             score += 25.0
-            reasons.append("Temporal proximity to same-repo incident within 15 min (+25.0)")
+            reasons.append("Temporal proximity to same-repo incident within 15 min.")
         elif time_diff <= 3600:  # 60 minutes
             score += 15.0
-            reasons.append("Temporal proximity to same-repo incident within 60 min (+15.0)")
+            reasons.append("Temporal proximity to same-repo incident within 60 min.")
         elif time_diff <= 7200:  # 120 minutes
             score += 5.0
-            reasons.append("Temporal proximity to same-repo incident within 120 min (+5.0)")
+            reasons.append("Temporal proximity to same-repo incident within 120 min.")
             
     # Downstream Dependent Incidents (Last 7 Days)
     # Only the active/open signal is intentional — resolved downstream incidents are excluded
@@ -264,16 +264,16 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     
     if has_active_downstream:
         score += 20.0
-        reasons.append("Active open incident on downstream dependent repository (+20.0)")
+        reasons.append("Active open incident on downstream dependent repository.")
         
     # Past Confirmed Root Causes (Last 90 Days)
     if confirmed_causes:
         score += 15.0
-        reasons.append("Repository was confirmed root cause of an incident within 90 days (+15.0)")
+        reasons.append("Repository was confirmed root cause of an incident within 90 days.")
         
     # Cap score
     score = min(100.0, max(15.0, score))
-    basis_str = ", ".join(reasons) + f". Final Risk Score: {score:.1f}"
+    basis_str = ", ".join(reasons) + "."
     
     return {
         "risk_score": score,

@@ -62,7 +62,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if event.repo_id == repo_id:
             w = weights.get("same_repo", 35.0)
             score += w
-            reasons.append(f"Same repository (+{w:.1f})")
+            reasons.append("Same repository.")
         elif event.repo_id in upstream_map:
             info = upstream_map[event.repo_id]
             dist = info["distance"]
@@ -70,30 +70,30 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             if dist == 1:
                 w = weights.get("dep_repo", 20.0)
                 score += w
-                reasons.append(f"Direct dependency (1 hop away via {path_str}) (+{w:.1f})")
+                reasons.append(f"Direct dependency (1 hop away via {path_str}).")
             elif dist == 2:
                 w = weights.get("transitive_2hop", 10.0)
                 score += w
-                reasons.append(f"Transitive dependency (2 hops away via {path_str}) (+{w:.1f})")
+                reasons.append(f"Transitive dependency (2 hops away via {path_str}).")
             elif dist == 3:
                 w = weights.get("transitive_3hop", 5.0)
                 score += w
-                reasons.append(f"Transitive dependency (3 hops away via {path_str}) (+{w:.1f})")
+                reasons.append(f"Transitive dependency (3 hops away via {path_str}).")
             
         # Temporal proximity
         time_diff = (incident.created_at - event.created_at).total_seconds()
         if time_diff <= 900:  # 15 minutes
             w = weights.get("temp_15m", 25.0)
             score += w
-            reasons.append(f"Temporal proximity within 15 min (+{w:.1f})")
+            reasons.append("Temporal proximity within 15 min.")
         elif time_diff <= 3600:  # 60 minutes
             w = weights.get("temp_60m", 15.0)
             score += w
-            reasons.append(f"Temporal proximity within 15-60 min (+{w:.1f})")
+            reasons.append("Temporal proximity within 15-60 min.")
         elif time_diff <= 7200:  # 120 minutes
             w = weights.get("temp_120m", 5.0)
             score += w
-            reasons.append(f"Temporal proximity within 60-120 min (+{w:.1f})")
+            reasons.append("Temporal proximity within 60-120 min.")
             
         # Past confirmed cause within 90 days on this repository (Queries append-only CandidateCauseFeedbackLog)
         fb_query = select(CandidateCauseFeedbackLog).where(
@@ -106,29 +106,28 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if confirmed_past:
             w = weights.get("past_precedent", 15.0)
             score += w
-            reasons.append(f"Past confirmed cause within 90 days (+{w:.1f})")
+            reasons.append("Past confirmed cause within 90 days.")
             
         # A4: Deployment risk contribution (reuses calculate_deployment_risk from impact_service)
         try:
             deploy_risk_info = await calculate_deployment_risk(session, event.repo_id)
             r_score = float(deploy_risk_info.get("risk_score", 0.0))
-            r_basis = str(deploy_risk_info.get("risk_basis", ""))
             w_risk = weights.get("deploy_risk", 15.0)
             risk_contrib = round((r_score / 100.0) * w_risk, 1)
             if risk_contrib > 0:
                 score += risk_contrib
-                reasons.append(f"Deployment risk score {r_score:.1f}/100 ({r_basis}) (+{risk_contrib:.1f})")
+                reasons.append(f"Deployment risk score {r_score:.1f}/100.")
         except Exception as risk_err:
             logger.error(f"Failed to calculate deploy risk for repo {event.repo_id}: {risk_err}")
             
         # Test score boost (for testing capping logic)
         if event.payload and "test_score_boost" in event.payload:
             score += float(event.payload["test_score_boost"])
-            reasons.append(f"Test score boost (+{event.payload['test_score_boost']})")
+            reasons.append("Test score boost applied.")
             
         if score > 0:
             score = min(100.0, score)
-            reason_str = ", ".join(reasons) + f". Total Score: {score}"
+            reason_str = ", ".join(reasons)
             scored_candidates.append({
                 "event": event,
                 "score": score,
