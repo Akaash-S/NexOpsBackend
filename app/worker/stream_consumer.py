@@ -176,7 +176,7 @@ async def github_auto_sync_loop():
         
         await asyncio.sleep(60)
 
-from datetime import datetime
+from datetime import datetime, timezone
 import signal
 
 async def worker_heartbeat_loop():
@@ -185,14 +185,16 @@ async def worker_heartbeat_loop():
     while True:
         try:
             if redis_client:
-                now_iso = datetime.utcnow().isoformat() + "Z"
+                now_iso = datetime.now(timezone.utc).isoformat()
                 # Keep heartbeat valid for 45 seconds (3x interval)
                 await redis_client.set("nexops:worker:heartbeat", now_iso, ex=45)
+        except asyncio.CancelledError:
+            break
         except Exception as e:
             logger.debug(f"Failed to record worker heartbeat: {e}")
         await asyncio.sleep(15)
 
-async def run_consumer():
+async def run_consumer(stop_event: asyncio.Event):
     """Main consumer loop."""
     logger.info("Initializing stream consumer...")
     await init_redis()
@@ -210,53 +212,68 @@ async def run_consumer():
     await init_db()
 
     # Launch background GitHub auto-sync task & heartbeat task
-    asyncio.create_task(github_auto_sync_loop())
-    asyncio.create_task(worker_heartbeat_loop())
+    sync_task = asyncio.create_task(github_auto_sync_loop())
+    heartbeat_task = asyncio.create_task(worker_heartbeat_loop())
 
     logger.info(f"Worker connected and listening on stream '{STREAM_NAME}' as consumer '{CONSUMER_NAME}'...")
 
-    while True:
-        try:
-            # Read new messages from the stream
-            # '>' reads messages that have never been delivered to other consumers
-            response = await redis_client.xreadgroup(
-                groupname=GROUP_NAME,
-                consumername=CONSUMER_NAME,
-                streams={STREAM_NAME: ">"},
-                count=10,
-                block=2000
-            )
+    try:
+        while not stop_event.is_set():
+            try:
+                # Read new messages from the stream
+                # '>' reads messages that have never been delivered to other consumers
+                response = await redis_client.xreadgroup(
+                    groupname=GROUP_NAME,
+                    consumername=CONSUMER_NAME,
+                    streams={STREAM_NAME: ">"},
+                    count=10,
+                    block=2000
+                )
 
-            if not response:
-                continue
+                if not response:
+                    continue
 
-            for stream_name, messages in response:
-                for msg_id, fields in messages:
-                    await handle_message(msg_id, fields)
+                for stream_name, messages in response:
+                    for msg_id, fields in messages:
+                        await handle_message(msg_id, fields)
 
-        except asyncio.CancelledError:
-            logger.info("Worker consumer shutdown requested.")
-            break
-        except Exception as e:
-            if "NOGROUP" in str(e):
-                logger.warning("Consumer group missing (NOGROUP). Re-initializing consumer group...")
-                await init_consumer_group()
-            else:
-                logger.error(f"Error in consumer loop: {e}")
-            await asyncio.sleep(2)  # Cool down on unexpected errors
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                if "NOGROUP" in str(e):
+                    logger.warning("Consumer group missing (NOGROUP). Re-initializing consumer group...")
+                    await init_consumer_group()
+                else:
+                    logger.error(f"Error in consumer loop: {e}")
+                await asyncio.sleep(2)  # Cool down on unexpected errors
+    finally:
+        logger.info("Cancelling background tasks...")
+        sync_task.cancel()
+        heartbeat_task.cancel()
+        await asyncio.gather(sync_task, heartbeat_task, return_exceptions=True)
+        logger.info("Worker consumer shutdown cleanly finished.")
+
+async def main():
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    # Register UNIX signals for clean shutdown in systemd / container
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, stop_event.set)
+            except NotImplementedError:
+                pass
+
+    try:
+        await run_consumer(stop_event)
+    except asyncio.CancelledError:
+        pass
 
 if __name__ == "__main__":
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        # Register UNIX signals for clean shutdown in systemd / container
-        if sys.platform != "win32":
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                loop.add_signal_handler(sig, lambda: loop.stop())
-
-        loop.run_until_complete(run_consumer())
+        asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Worker gracefully stopped.")
+        pass
     finally:
-        logger.info("Worker process exited.")
+        logger.info("Worker process exited cleanly.")
