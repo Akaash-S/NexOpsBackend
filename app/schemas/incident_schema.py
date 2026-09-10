@@ -31,6 +31,7 @@ class CandidateCauseResponse(BaseSchema):
     event_id: Optional[str] = None
     score: float
     reason: str
+    match_reasons: List[str] = []
     confirmed: Optional[bool] = None
     confirmed_by: Optional[str] = None
     created_at: datetime

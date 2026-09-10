@@ -313,7 +313,7 @@ async def health_check_detailed(user=Depends(get_current_user)):
                 redis_connected = True
                 redis_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
                 try:
-                    queue_depth = await _redis.xlen("nexops:events:stream")
+                    queue_depth = await _redis.xlen("nexops:events")
                 except Exception:
                     pass
                 try:

@@ -21,6 +21,6 @@ pytest.ini
 alembic/*
 backups/*
 truncate_db.py
-scripts/
 scripts/*
+!scripts/nexops-worker.service
 scratch_real_token.txt

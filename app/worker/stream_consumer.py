@@ -176,6 +176,22 @@ async def github_auto_sync_loop():
         
         await asyncio.sleep(60)
 
+from datetime import datetime
+import signal
+
+async def worker_heartbeat_loop():
+    """Periodic task that publishes a worker heartbeat to Redis every 15 seconds."""
+    logger.info("Starting worker heartbeat loop...")
+    while True:
+        try:
+            if redis_client:
+                now_iso = datetime.utcnow().isoformat() + "Z"
+                # Keep heartbeat valid for 45 seconds (3x interval)
+                await redis_client.set("nexops:worker:heartbeat", now_iso, ex=45)
+        except Exception as e:
+            logger.debug(f"Failed to record worker heartbeat: {e}")
+        await asyncio.sleep(15)
+
 async def run_consumer():
     """Main consumer loop."""
     logger.info("Initializing stream consumer...")
@@ -193,8 +209,9 @@ async def run_consumer():
     # Verify database is initialized
     await init_db()
 
-    # Launch background GitHub auto-sync task
+    # Launch background GitHub auto-sync task & heartbeat task
     asyncio.create_task(github_auto_sync_loop())
+    asyncio.create_task(worker_heartbeat_loop())
 
     logger.info(f"Worker connected and listening on stream '{STREAM_NAME}' as consumer '{CONSUMER_NAME}'...")
 
@@ -230,6 +247,16 @@ async def run_consumer():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(run_consumer())
-    except KeyboardInterrupt:
-        logger.info("Worker stopped by user.")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Register UNIX signals for clean shutdown in systemd / container
+        if sys.platform != "win32":
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: loop.stop())
+
+        loop.run_until_complete(run_consumer())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Worker gracefully stopped.")
+    finally:
+        logger.info("Worker process exited.")

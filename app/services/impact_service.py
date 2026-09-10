@@ -270,7 +270,10 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     # Past Confirmed Root Causes (Last 90 Days)
     if confirmed_causes:
         score += 15.0
-        drivers.append("confirmed root cause of a past incident within 90 days")
+        last_c = confirmed_causes[0]
+        past_inc = await session.get(Incident, last_c.incident_id) if last_c.incident_id else None
+        past_title = past_inc.title if past_inc and past_inc.title else (f"incident {last_c.incident_id[:8]}" if last_c.incident_id else "past incident")
+        drivers.append(f"confirmed root cause of past incident '{past_title}'")
         
     # Cap score
     score = min(100.0, max(15.0, score))

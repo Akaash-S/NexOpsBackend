@@ -1,0 +1,19 @@
+[Unit]
+Description=NexOps Redis Stream Background Worker & Auto-Sync Engine
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/nexops/backend
+EnvironmentFile=/opt/nexops/backend/.env
+ExecStart=/opt/nexops/backend/venv/bin/python -m app.worker.stream_consumer
+Restart=always
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
