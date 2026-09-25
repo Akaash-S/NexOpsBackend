@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
+from urllib.parse import urlparse
 # Ensure backend directory is in sys.path
 sys.path.append(os.getcwd())
 
@@ -52,6 +53,18 @@ def get_target_db_url() -> str:
         return settings.direct_async_staging_database_url
     elif target == "production":
         return settings.direct_owner_async_database_url
+    elif target == "local":
+        url = os.environ.get("LOCAL_MIGRATION_DATABASE_URL")
+        if not url:
+            raise ValueError(
+                "Set LOCAL_MIGRATION_DATABASE_URL to use -x target=local"
+            )
+        host = urlparse(url.replace("+asyncpg", "")).hostname
+        if host not in ("localhost", "127.0.0.1"):
+            raise ValueError(
+                f"target=local only allows a localhost database, got host '{host}'"
+            )
+        return url
     else:
         raise ValueError(
             f"Invalid target environment '{target}'. "
