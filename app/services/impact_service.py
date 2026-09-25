@@ -227,46 +227,47 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     if not downstream_repos and not same_repo_incidents and not confirmed_causes:
         return {
             "risk_score": 0.0,
-            "risk_basis": "Low risk. No downstream services depend on this repository and no recent incidents."
+            "risk_basis": "Low risk: no downstream services depend on this service and no recent incidents."
         }
-        
+
     score = 15.0
     drivers = []
-    
+
     # Same-Repo Incidents (Last 7 Days)
     # Only the active/open signal is intentional — resolved incidents are excluded
     # (7-day resolved-incident factor was unattributed; removed per decision 2026-08-02)
     has_active_same = any(inc.status == "open" for inc in same_repo_incidents)
-    
+
     if has_active_same:
         score += 35.0
-        drivers.append("active open incident on the same repository")
-        
+        drivers.append("active open incident on the same service")
+
     # Temporal proximity to most recent incident on the repo
     if same_repo_incidents:
         most_recent_inc = max(same_repo_incidents, key=lambda inc: inc.created_at)
         time_diff = (now - most_recent_inc.created_at).total_seconds()
         time_diff = max(0.0, time_diff)
         mins_diff = max(1, int(time_diff / 60))
+        mins_unit = "minute" if mins_diff == 1 else "minutes"
         if time_diff <= 900:  # 15 minutes
             score += 25.0
-            drivers.append(f"incident triggered {mins_diff} min ago on the same repository")
+            drivers.append(f"recent incident triggered {mins_diff} {mins_unit} ago on the same service")
         elif time_diff <= 3600:  # 60 minutes
             score += 15.0
-            drivers.append(f"incident triggered {mins_diff} min ago on the same repository")
+            drivers.append(f"recent incident triggered {mins_diff} {mins_unit} ago on the same service")
         elif time_diff <= 7200:  # 120 minutes
             score += 5.0
-            drivers.append(f"incident triggered {mins_diff} min ago on the same repository")
-            
+            drivers.append(f"recent incident triggered {mins_diff} {mins_unit} ago on the same service")
+
     # Downstream Dependent Incidents (Last 7 Days)
     # Only the active/open signal is intentional — resolved downstream incidents are excluded
     # (7-day resolved-downstream factor was unattributed; removed per decision 2026-08-02)
     has_active_downstream = any(inc.status == "open" for inc in downstream_incidents)
-    
+
     if has_active_downstream:
         score += 20.0
-        drivers.append("active open incident on a downstream dependent repository")
-        
+        drivers.append("active open incident on a downstream dependent service")
+
     # Past Confirmed Root Causes (Last 90 Days)
     if confirmed_causes:
         score += 15.0
@@ -274,16 +275,16 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
         past_inc = await session.get(Incident, last_c.incident_id) if last_c.incident_id else None
         past_title = past_inc.title if past_inc and past_inc.title else (f"incident {last_c.incident_id[:8]}" if last_c.incident_id else "past incident")
         drivers.append(f"confirmed root cause of past incident '{past_title}'")
-        
+
     # Cap score
     score = min(100.0, max(15.0, score))
-    
+
     if drivers:
         top_driver = drivers[0]
-        basis_str = f"Carries a high deployment risk score ({int(score)}/100) — {top_driver}."
+        basis_str = f"Elevated deployment risk: {top_driver}."
     else:
-        basis_str = "Baseline deployment risk score (15/100) — no active incidents or past failures."
-    
+        basis_str = "Baseline deployment risk: no active incidents or past failures."
+
     return {
         "risk_score": score,
         "risk_basis": basis_str
