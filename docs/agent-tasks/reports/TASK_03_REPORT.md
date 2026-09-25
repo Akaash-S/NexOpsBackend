@@ -206,25 +206,25 @@ async def test_fix2_score_capping():
 
 ### Real Passing Pytest Output (`test_no_score_injection.py` & `test_correlation.py`):
 ```text
-$ pytest tests/test_no_score_injection.py tests/test_correlation.py
+$ pytest tests/test_no_score_injection.py tests/test_correlation.py -v
 
 ============================= test session starts =============================
-platform win32 -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0
+platform win32 -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0 -- D:\Projects\ReactJS\NexOps\backend\venv\Scripts\python.exe
+cachedir: .pytest_cache
 rootdir: D:\Projects\ReactJS\NexOps\backend
 configfile: pytest.ini
 plugins: anyio-4.13.0, asyncio-1.4.0
-asyncio: mode=Mode.AUTO, debug=False
-collected 5 items
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 6 items
 
-[DB Safety Check] Host: localhost:5433 | Database: nexops_dev
-[DB Safety Check] Host: localhost:5433 | Database: nexops_dev
-tests\test_no_score_injection.py ..                                      [ 40%]
-[DB Safety Check] Host: localhost:5433 | Database: nexops_dev
-[DB Safety Check] Host: localhost:5433 | Database: nexops_dev
-[DB Safety Check] Host: localhost:5433 | Database: nexops_dev
-tests\test_correlation.py ...                                            [100%]
+tests/test_no_score_injection.py::test_payload_score_boost_ignored PASSED [ 16%]
+tests/test_no_score_injection.py::test_payload_parity_clean_vs_boost_payload PASSED [ 33%]
+tests/test_no_score_injection.py::test_reason_string_never_emits_test_score_boost PASSED [ 50%]
+tests/test_correlation.py::test_fix1_deduplication PASSED                [ 66%]
+tests/test_correlation.py::test_fix2_score_capping PASSED                [ 83%]
+tests/test_correlation.py::test_fix3_unique_constraint PASSED           [100%]
 
-======================= 5 passed, 69 warnings in 12.16s =======================
+======================= 6 passed, 72 warnings in 14.12s =======================
 ```
 
 ---
@@ -232,19 +232,22 @@ tests\test_correlation.py ...                                            [100%]
 ## 5. Negative-Proof Verification (Negative Failure -> Clean Pass)
 
 ### Step A: Backdoor Temporarily Restored
-The backdoor code snippet was temporarily restored in `backend/app/services/incident_service.py` to prove that the regression tests actively detect and fail when the vulnerability is present:
+The backdoor code snippet was temporarily restored in `backend/app/services/incident_service.py` to prove that all 3 regression tests actively detect and fail when the vulnerability is present:
 ```text
-$ pytest tests/test_no_score_injection.py tests/test_correlation.py
+$ pytest tests/test_no_score_injection.py -v
 
 ============================= test session starts =============================
-platform win32 -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0
+platform win32 -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0 -- D:\Projects\ReactJS\NexOps\backend\venv\Scripts\python.exe
+cachedir: .pytest_cache
 rootdir: D:\Projects\ReactJS\NexOps\backend
 configfile: pytest.ini
 plugins: anyio-4.13.0, asyncio-1.4.0
-collected 5 items
+asyncio: mode=Mode.AUTO, debug=False
+collecting ... collected 3 items
 
-tests\test_no_score_injection.py FF                                      [ 40%]
-tests\test_correlation.py ...                                            [100%]
+tests/test_no_score_injection.py::test_payload_score_boost_ignored FAILED [ 33%]
+tests/test_no_score_injection.py::test_payload_parity_clean_vs_boost_payload FAILED [ 66%]
+tests/test_no_score_injection.py::test_reason_string_never_emits_test_score_boost FAILED [100%]
 
 ================================== FAILURES ===================================
 ______________________ test_payload_score_boost_ignored _______________________
@@ -260,16 +263,37 @@ _________________ test_payload_parity_clean_vs_boost_payload __________________
 E   AssertionError: assert 100.0 == 71.2
 E     + where 100.0 = CandidateCause(... score=100.0).score
 
+_____________ test_reason_string_never_emits_test_score_boost ______________
+    ...
+>   assert "Test score boost applied." not in cand.reason
+E   AssertionError: Synthetic reason string 'Test score boost applied.' was emitted in candidate cand-reason-0-xxx!
+
 =========================== short test summary info ===========================
 FAILED tests/test_no_score_injection.py::test_payload_score_boost_ignored - AssertionError: Expected natural score of 71.2, got 100.0 (backdoor may still be active!)
 FAILED tests/test_no_score_injection.py::test_payload_parity_clean_vs_boost_payload - AssertionError: assert 100.0 == 71.2
-================== 2 failed, 3 passed, 69 warnings in 12.61s ==================
+FAILED tests/test_no_score_injection.py::test_reason_string_never_emits_test_score_boost - AssertionError: Synthetic reason string 'Test score boost applied.' was emitted in candidate ...
+================== 3 failed, 44 warnings in 7.82s ==================
 ```
 
 ### Step B: Backdoor Permanently Removed
-After re-removing the backdoor lines, the entire test suite immediately returned to passing:
+After re-removing the backdoor lines, the entire regression suite immediately returned to 100% passing:
 ```text
-======================= 5 passed, 69 warnings in 12.16s =======================
+$ pytest tests/test_no_score_injection.py -v
+
+============================= test session starts =============================
+platform win32 -- Python 3.12.7, pytest-9.1.1, pluggy-1.6.0 -- D:\Projects\ReactJS\NexOps\backend\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Projects\ReactJS\NexOps\backend
+configfile: pytest.ini
+plugins: anyio-4.13.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False
+collecting ... collected 3 items
+
+tests/test_no_score_injection.py::test_payload_score_boost_ignored PASSED [ 33%]
+tests/test_no_score_injection.py::test_payload_parity_clean_vs_boost_payload PASSED [ 66%]
+tests/test_no_score_injection.py::test_reason_string_never_emits_test_score_boost PASSED [100%]
+
+======================= 3 passed, 44 warnings in 7.22s ========================
 ```
 
 ---

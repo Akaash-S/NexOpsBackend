@@ -36,7 +36,8 @@ def _verify_localhost_db():
 @pytest.mark.asyncio
 async def test_payload_score_boost_ignored():
     """
-    Regression Test: Asserts that an event containing 'test_score_boost' in its payload
+    Test Case 1: Payload Immunity Test
+    Asserts that an event containing 'test_score_boost' in its payload
     is scored SOLELY on its natural topological and temporal factors, completely ignoring
     the payload override key.
     """
@@ -143,7 +144,8 @@ async def test_payload_score_boost_ignored():
 @pytest.mark.asyncio
 async def test_payload_parity_clean_vs_boost_payload():
     """
-    Regression Test: Proves that two identical events (one with empty payload, one with
+    Test Case 2: Payload Parity Test
+    Proves that two identical events (one with empty payload, one with
     test_score_boost) yield EXACTLY identical scores and identical reason strings.
     """
     _verify_localhost_db()
@@ -220,3 +222,86 @@ async def test_payload_parity_clean_vs_boost_payload():
         assert cand_a.score == cand_b.score == 71.2
         assert "Test score boost applied." not in cand_b.reason
         print(f"Parity verified: Clean score = {cand_a.score}, Boost-payload score = {cand_b.score}")
+
+
+@pytest.mark.asyncio
+async def test_reason_string_never_emits_test_score_boost():
+    """
+    Test Case 3: Reason String Verification
+    Asserts that under no circumstances is the synthetic reason string
+    'Test score boost applied.' emitted into CandidateCause.reason, regardless of
+    the payload contents or presence of 'test_score_boost'.
+    """
+    _verify_localhost_db()
+    await init_db()
+
+    async with async_session() as session:
+        await session.execute(text("RESET ROLE;"))
+        await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
+
+        ws_id = f"ws-reason-{uuid.uuid4().hex[:8]}"
+        ws = Workspace(id=ws_id, name="Reason Test WS", color="orange", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        session.add(ws)
+        await session.flush()
+
+        usr_id = f"usr-reason-{uuid.uuid4().hex[:8]}"
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Reason User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        session.add(usr)
+        await session.flush()
+
+        repo_id = f"repo-reason-{uuid.uuid4().hex[:8]}"
+        repo = Repo(id=repo_id, name="payment-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        session.add(repo)
+        await session.flush()
+
+        now = datetime.utcnow()
+        # Create multiple events with various forms of test_score_boost
+        payloads_to_test = [
+            {"test_score_boost": 10.0},
+            {"test_score_boost": 99.9},
+            {"test_score_boost": 0.0},
+            {"test_score_boost": -25.0},
+        ]
+
+        events = []
+        for idx, p in enumerate(payloads_to_test):
+            evt = Event(
+                id=f"evt-reason-{idx}-{uuid.uuid4().hex[:8]}",
+                type="push",
+                source="github",
+                repo_id=repo_id,
+                workspace_id=ws_id,
+                payload=p,
+                created_at=now - timedelta(minutes=5 + idx)
+            )
+            session.add(evt)
+            events.append(evt)
+        await session.flush()
+
+        inc = Incident(
+            id=f"inc-reason-{uuid.uuid4().hex[:8]}",
+            title="Reason Test Outage",
+            workspace_id=ws_id,
+            root_cause_repo_id=repo_id,
+            status="open",
+            created_at=now,
+            updated_at=now
+        )
+        session.add(inc)
+        await session.flush()
+
+        await correlate_incident_causes(session, inc)
+        await session.commit()
+
+        # Query all candidate causes generated for this incident
+        cand_res = await session.execute(
+            select(CandidateCause).where(CandidateCause.incident_id == inc.id)
+        )
+        all_candidates = cand_res.scalars().all()
+        assert len(all_candidates) > 0, "Expected at least one candidate cause"
+
+        for cand in all_candidates:
+            print(f"Candidate {cand.id} reason string: {cand.reason}")
+            assert "Test score boost applied." not in cand.reason, (
+                f"Synthetic reason string 'Test score boost applied.' was emitted in candidate {cand.id}!"
+            )
