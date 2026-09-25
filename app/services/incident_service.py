@@ -68,7 +68,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if event.repo_id == repo_id:
             w = weights.get("same_repo", 35.0)
             score += w
-            reasons.append(f"Deployed to {repo_name}, the same repository as the alerting service.")
+            reasons.append(f"Deployed to {repo_name}, the same service that is alerting.")
         elif event.repo_id in upstream_map:
             info = upstream_map[event.repo_id]
             dist = info["distance"]
@@ -76,32 +76,33 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             if dist == 1:
                 w = weights.get("dep_repo", 20.0)
                 score += w
-                reasons.append(f"Direct dependency (1 hop away via {path_str}).")
+                reasons.append(f"Changed a service that the alerting service depends on directly (via {path_str}).")
             elif dist == 2:
                 w = weights.get("transitive_2hop", 10.0)
                 score += w
-                reasons.append(f"Transitive dependency (2 hops away via {path_str}).")
+                reasons.append(f"Changed a service two steps upstream of the alerting service (via {path_str}).")
             elif dist == 3:
                 w = weights.get("transitive_3hop", 5.0)
                 score += w
-                reasons.append(f"Transitive dependency (3 hops away via {path_str}).")
-            
+                reasons.append(f"Changed a service three steps upstream of the alerting service (via {path_str}).")
+
         # Temporal proximity with real computed minutes
         time_diff = (incident.created_at - event.created_at).total_seconds()
         mins_diff = max(1, int(time_diff / 60))
+        mins_unit = "minute" if mins_diff == 1 else "minutes"
         if time_diff <= 900:  # 15 minutes
             w = weights.get("temp_15m", 25.0)
             score += w
-            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
+            reasons.append(f"Deployed {mins_diff} {mins_unit} before the incident was triggered.")
         elif time_diff <= 3600:  # 60 minutes
             w = weights.get("temp_60m", 15.0)
             score += w
-            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
+            reasons.append(f"Deployed {mins_diff} {mins_unit} before the incident was triggered.")
         elif time_diff <= 7200:  # 120 minutes
             w = weights.get("temp_120m", 5.0)
             score += w
-            reasons.append(f"Deployed {mins_diff} min before the incident was triggered.")
-            
+            reasons.append(f"Deployed {mins_diff} {mins_unit} before the incident was triggered.")
+
         # Past confirmed cause within 90 days on this repository
         fb_query = select(CandidateCauseFeedbackLog, Incident).join(
             Incident, CandidateCauseFeedbackLog.incident_id == Incident.id, isouter=True
@@ -117,9 +118,10 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             score += w
             last_fb, past_inc = confirmed_past_tuples[0]
             days_ago = max(1, (incident.created_at - last_fb.created_at).days)
+            days_unit = "day" if days_ago == 1 else "days"
             past_title = past_inc.title if past_inc and past_inc.title else f"incident {last_fb.incident_id[:8]}"
-            reasons.append(f"This repository was the confirmed root cause of past incident '{past_title}' ({days_ago} days ago).")
-            
+            reasons.append(f"This service was the confirmed root cause of past incident '{past_title}' ({days_ago} {days_unit} ago).")
+
         # A4: Deployment risk contribution (reuses calculate_deployment_risk from impact_service)
         try:
             deploy_risk_info = await calculate_deployment_risk(session, event.repo_id)
@@ -127,7 +129,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
             r_basis = str(deploy_risk_info.get("risk_basis", ""))
             w_risk = weights.get("deploy_risk", 15.0)
             risk_contrib = round((r_score / 100.0) * w_risk, 1)
-            if risk_contrib > 0:
+            if risk_contrib > 0 and r_basis:
                 score += risk_contrib
                 reasons.append(r_basis)
         except Exception as risk_err:
