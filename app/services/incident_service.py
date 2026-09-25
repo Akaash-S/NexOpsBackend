@@ -132,12 +132,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
                 reasons.append(r_basis)
         except Exception as risk_err:
             logger.error(f"Failed to calculate deploy risk for repo {event.repo_id}: {risk_err}")
-            
-        # Test score boost (for testing capping logic)
-        if event.payload and "test_score_boost" in event.payload:
-            score += float(event.payload["test_score_boost"])
-            reasons.append("Test score boost applied.")
-            
+
         if score > 0:
             score = min(100.0, score)
             reason_str = json.dumps(reasons)
