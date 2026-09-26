@@ -227,15 +227,7 @@ async def health_check():
 
     db_ok = False
     redis_ok = False
-    db_branch = "unknown"
     try:
-        db_url_str = settings.DATABASE_URL or ""
-        if "@" in db_url_str:
-            host_part = db_url_str.split("@")[1].split("/")[0]
-            db_branch = host_part.split(".")[0]
-        elif "://" in db_url_str:
-            db_branch = db_url_str.split("://")[1].split("/")[0]
-
         async with async_session() as s:
             await s.execute(text("SELECT 1"))
         db_ok = True
@@ -254,10 +246,6 @@ async def health_check():
         "status": status,
         "service": settings.APP_NAME,
         "version": "1.0.0",
-        "database": {
-            "connected": db_ok,
-            "branch": db_branch,
-        }
     }
 
 
