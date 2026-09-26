@@ -77,14 +77,64 @@ async def test_3_public_health_minimal_response():
     """Assertion 3: Verify /health returns minimal info without leaking DB branch or commit details."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        for path in ("/health", "/api/v1/health"):
+            res = await client.get(path)
+            assert res.status_code == 200
+            data = res.json()
+            assert set(data.keys()) == {"status", "service", "version"}, f"Public {path} exposed unexpected keys: {set(data.keys())}"
+            assert "database" not in data, f"Public {path} must not leak database metadata"
+            assert "commit_sha" not in data, f"Public {path} must not leak commit_sha"
+
+
+@pytest.mark.asyncio
+async def test_3b_public_health_no_infra_substrings_leak():
+    """Assertion 3b: Verify no host, port, branch, or connection substrings appear anywhere in raw /health body."""
+    from urllib.parse import urlparse
+    from app.core.config import settings
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        for path in ("/health", "/api/v1/health"):
+            res = await client.get(path)
+            assert res.status_code == 200
+            raw_text = res.text.lower()
+
+            # Forbidden substrings from DATABASE_URL
+            if settings.DATABASE_URL:
+                parsed_db = urlparse(settings.DATABASE_URL)
+                if parsed_db.hostname:
+                    assert parsed_db.hostname.lower() not in raw_text, f"DB hostname leaked in {path}"
+                if parsed_db.port:
+                    assert str(parsed_db.port) not in raw_text, f"DB port leaked in {path}"
+                dbname = parsed_db.path.lstrip("/")
+                if dbname and len(dbname) > 3:
+                    assert dbname.lower() not in raw_text, f"DB name leaked in {path}"
+
+            # Forbidden infrastructure keywords
+            for keyword in ("neon.tech", "postgres", "redis", "branch", "pool", "latency", "commit_sha"):
+                assert keyword not in raw_text, f"Infrastructure keyword '{keyword}' leaked in {path} response"
+
+
+@pytest.mark.asyncio
+async def test_3c_public_health_degraded_on_db_failure(monkeypatch):
+    """Assertion 3c: Verify DB failure marks status='degraded' without leaking error details."""
+    from unittest.mock import AsyncMock
+    from app.core import database
+
+    # Mock async_session to simulate DB failure
+    mock_failing_session = AsyncMock()
+    mock_failing_session.__aenter__.side_effect = Exception("Fatal Neon connection timeout")
+    monkeypatch.setattr(database, "async_session", lambda: mock_failing_session)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         res = await client.get("/health")
         assert res.status_code == 200
         data = res.json()
-        assert "status" in data
-        assert "service" in data
-        assert "version" in data
-        assert "database" not in data, "Public /health must not leak database metadata"
-        assert "commit_sha" not in data, "Public /health must not leak commit_sha"
+        assert data["status"] == "degraded"
+        assert set(data.keys()) == {"status", "service", "version"}
+        assert "Fatal Neon" not in res.text
+        assert "timeout" not in res.text
 
 
 @pytest.mark.asyncio
