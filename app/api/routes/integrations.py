@@ -616,14 +616,43 @@ async def get_integration_status(
     )
     synced_repos_count = count_result.scalar() or 0
 
-    # PagerDuty: check whether the encrypted token exists AND can be decrypted
+    # PagerDuty: check whether the encrypted token and webhook secret exist AND can be decrypted
     pagerduty_connected = False
+    pagerduty_status = "not_connected"
+    pagerduty_config = "Not configured"
+    pagerduty_note: str | None = None
+
+    token_decrypt_failed = False
+    secret_decrypt_failed = False
+    has_valid_token = False
+
     if fresh_user.pagerduty_access_token:
         try:
             pd_token = decrypt_secret(fresh_user.pagerduty_access_token)
-            pagerduty_connected = bool(pd_token)
+            has_valid_token = bool(pd_token)
         except Exception:
-            pagerduty_connected = False
+            token_decrypt_failed = True
+
+    if fresh_user.pagerduty_webhook_secret:
+        try:
+            decrypt_secret(fresh_user.pagerduty_webhook_secret)
+        except Exception:
+            secret_decrypt_failed = True
+
+    if token_decrypt_failed or secret_decrypt_failed:
+        pagerduty_connected = False
+        pagerduty_status = "reconnect_required"
+        pagerduty_config = "Reconnect Required (Decryption Failed)"
+        if token_decrypt_failed and secret_decrypt_failed:
+            pagerduty_note = "Stored credentials cannot be decrypted with current encryption key. Please reconnect."
+        elif token_decrypt_failed:
+            pagerduty_note = "Stored API token cannot be decrypted with current encryption key. Please reconnect."
+        else:
+            pagerduty_note = "Stored webhook secret cannot be decrypted with current encryption key. Please reconnect."
+    elif has_valid_token:
+        pagerduty_connected = True
+        pagerduty_status = "connected"
+        pagerduty_config = "API Token Connected"
 
     # Terms Acknowledgment Gate check for status response
     terms_acknowledged = await _is_terms_acknowledged(session, fresh_user.workspace_id)
@@ -649,7 +678,9 @@ async def get_integration_status(
         },
         "pagerduty": {
             "connected": pagerduty_connected,
-            "config": "API Token Connected" if pagerduty_connected else "Not configured",
+            "status": pagerduty_status,
+            "config": pagerduty_config,
+            "note": pagerduty_note,
         },
     }
 
