@@ -61,6 +61,7 @@ async def verify_pagerduty_signature(
     uid = request.query_params.get("uid")
     webhook_secret = None
     secret_source = "none"
+    user_secret_decryption_failed = False
     if uid:
         from app.models.user import User
         from app.core.crypto import decrypt_secret
@@ -87,11 +88,30 @@ async def verify_pagerduty_signature(
                             {"workspace_id": user.workspace_id, "user_id": user.id}
                         )
                     if user and user.pagerduty_webhook_secret:
-                        webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
-                        secret_source = f"user:{raw_uid}"
-                        logger.info(f"Using per-user PagerDuty webhook secret for user {raw_uid}")
+                        try:
+                            webhook_secret = decrypt_secret(user.pagerduty_webhook_secret)
+                            secret_source = f"user:{raw_uid}"
+                            logger.info(f"Using per-user PagerDuty webhook secret for user {raw_uid}")
+                        except Exception as dec_err:
+                            user_secret_decryption_failed = True
+                            logger.warning(
+                                f"PagerDuty webhook secret decryption failed for user {raw_uid} "
+                                f"(key rotation or corrupted credential): {type(dec_err).__name__}"
+                            )
             except Exception as db_err:
                 logger.error(f"Error looking up PagerDuty secret for user {raw_uid}: {db_err}")
+
+    # FAIL CLOSED: If the user configured a per-user secret but decryption failed (e.g. key rotation),
+    # do NOT fall through to global secret. Reject immediately with HTTP 400 Bad Request (non-retryable for PagerDuty).
+    if user_secret_decryption_failed:
+        logger.error(
+            f"Rejecting PagerDuty webhook: user {raw_uid} has a configured webhook secret that failed decryption. "
+            "Reconnect required."
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="PagerDuty integration credentials invalid: reconnect required."
+        )
 
     if not webhook_secret:
         webhook_secret = settings.PAGERDUTY_WEBHOOK_SECRET
