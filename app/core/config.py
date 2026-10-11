@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
+    # Sentry & Monitoring
+    SENTRY_DSN: Optional[str] = None
+
+    # Protected Health Check Secret
+    HEALTH_CHECK_SECRET: Optional[str] = None
+
     # Domain & Email Configuration (Loaded directly from environment variables / .env)
     EMAIL_DOMAIN: Optional[str] = None
     RESEND_API_KEY: Optional[str] = None
