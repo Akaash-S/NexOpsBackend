@@ -199,6 +199,17 @@ async def get_or_create_incident(
     Find an existing open incident for the same repository within the last 30 mins, 
     or create a new one, protected by an advisory lock.
     """
+    # Fetch repository workspace_id to construct the advisory lock key
+    repo = await session.get(Repo, repo_id)
+    workspace_id = repo.workspace_id if repo else None
+    lock_key = f"{workspace_id}:{repo_id}"
+
+    # Acquire transaction-scoped advisory lock before existence check
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": lock_key}
+    )
+
     # Check for existing open incident for this repository
     thirty_mins_ago = datetime.utcnow() - timedelta(minutes=30)
     query = select(Incident).where(
@@ -219,10 +230,6 @@ async def get_or_create_incident(
         session.add(existing_incident)
         await session.flush()
         return existing_incident
-
-    # Fetch repository workspace_id
-    repo = await session.get(Repo, repo_id)
-    workspace_id = repo.workspace_id if repo else None
 
     # Dynamically estimate real affected users based on incident severity and impacted service count
     base_users = 250 if severity == "critical" else (100 if severity == "high" else 25)
