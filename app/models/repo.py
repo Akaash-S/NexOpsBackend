@@ -4,7 +4,7 @@ Represents a source code repository tracked by NexOps.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, String
@@ -54,5 +54,5 @@ class Repo(SQLModel, table=True):
     github_updated_at: Optional[datetime] = Field(default=None)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

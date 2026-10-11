@@ -5,7 +5,7 @@ Tracks the lifecycle from discovery to resolution.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON
@@ -38,7 +38,7 @@ class Incident(SQLModel, table=True):
     pd_incident_id: Optional[str] = Field(default=None, max_length=64, nullable=True, index=True)
 
     # Timestamps
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -6,7 +6,7 @@ Provides management of tenant workspace configuration and feature flags.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.core.security import get_current_user
@@ -76,7 +76,7 @@ async def update_current_workspace(
         update_data = body.model_dump(exclude_none=True)
         for field, value in update_data.items():
             setattr(workspace, field, value)
-        workspace.updated_at = datetime.utcnow()
+        workspace.updated_at = datetime.now(timezone.utc)
 
         session.add(workspace)
 

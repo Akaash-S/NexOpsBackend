@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from sqlmodel import select
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.models.user import User
@@ -42,7 +42,7 @@ async def complete_onboarding(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     db_user.onboarding_completed = True
-    db_user.updated_at = datetime.utcnow()
+    db_user.updated_at = datetime.now(timezone.utc)
     session.add(db_user)
     await session.commit()
     await session.refresh(db_user)
@@ -65,7 +65,7 @@ async def update_preferences(
     updated_prefs = {**current_prefs, **preferences}
     db_user.preferences = updated_prefs
     
-    db_user.updated_at = datetime.utcnow()
+    db_user.updated_at = datetime.now(timezone.utc)
     session.add(db_user)
     await session.commit()
     await session.refresh(db_user)

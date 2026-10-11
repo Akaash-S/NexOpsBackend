@@ -4,7 +4,7 @@ Represents a first-class tenant workspace in NexOps.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
@@ -27,5 +27,5 @@ class Workspace(SQLModel, table=True):
     status: str = Field(default="connected")
     show_extended_navigation: bool = Field(default=False)
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

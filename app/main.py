@@ -206,8 +206,8 @@ async def websocket_endpoint(
         manager.disconnect(websocket)
 
 
-from datetime import datetime
-START_TIME = datetime.utcnow()
+from datetime import datetime, timezone
+START_TIME = datetime.now(timezone.utc)
 
 
 @app.get("/health", tags=["System"])
@@ -261,12 +261,12 @@ async def health_check_detailed(user=Depends(get_current_user)):
     import os
     import time
     import httpx
-    from datetime import datetime
+    from datetime import datetime, timezone
     from sqlalchemy import text
     from app.core.database import async_session
     from app.core.redis import redis_client as _redis
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     uptime_seconds = round((now - START_TIME).total_seconds(), 2)
 
     # 1. Database

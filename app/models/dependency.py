@@ -5,7 +5,7 @@ source_repo_id → target_repo_id means source depends on target.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, String
@@ -37,4 +37,4 @@ class Dependency(SQLModel, table=True):
     # Human-readable label shown on the edge
     label: str = Field(default="depends on", max_length=100)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

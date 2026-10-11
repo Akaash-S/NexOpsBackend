@@ -4,7 +4,7 @@ Represents a potential root cause (event/commit/deployment) scored for an incide
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import UniqueConstraint, CheckConstraint
@@ -30,8 +30,8 @@ class CandidateCause(SQLModel, table=True):
     confirmed: Optional[bool] = Field(default=None, nullable=True)
     confirmed_by: Optional[str] = Field(default=None, foreign_key="users.id", nullable=True)
     
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("incident_id", "event_id", name="uq_candidate_cause_incident_event"),

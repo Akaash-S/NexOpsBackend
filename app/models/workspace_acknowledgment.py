@@ -4,7 +4,7 @@ Records workspace acceptance of Terms of Service and Privacy Notice before conne
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
@@ -20,4 +20,4 @@ class WorkspaceAcknowledgment(SQLModel, table=True):
     workspace_id: str = Field(foreign_key="workspaces.id", index=True, unique=True)
     user_id: str = Field(foreign_key="users.id", index=True)
     terms_version: str = Field(default="v1.0", max_length=50)
-    acknowledged_at: datetime = Field(default_factory=datetime.utcnow)
+    acknowledged_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

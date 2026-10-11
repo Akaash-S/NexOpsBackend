@@ -5,7 +5,7 @@ One postmortem per incident. Fields are editable and auto-saved.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, Text
@@ -61,5 +61,5 @@ class Postmortem(SQLModel, table=True):
     # Status: draft | published
     status: str = Field(default="draft", index=True)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

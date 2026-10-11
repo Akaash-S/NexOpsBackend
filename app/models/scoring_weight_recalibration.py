@@ -4,7 +4,7 @@ Stores auditable history of correlation scoring weight recalibrations per worksp
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlmodel import SQLModel, Field
 
 
@@ -30,4 +30,4 @@ class ScoringWeightRecalibration(SQLModel, table=True):
     # Trigger type: e.g. "manual", "scheduled"
     trigger_type: str = Field(default="manual", max_length=50)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

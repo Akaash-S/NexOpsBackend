@@ -6,7 +6,7 @@ Implements safe fallbacks when feedback sample size is below threshold.
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,7 +178,7 @@ async def recalibrate_scoring_weights(
         sample_size=sample_size,
         previous_weights=json.dumps(prev_weights),
         trigger_type=trigger_type,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     session.add(recal_record)
     await session.commit()

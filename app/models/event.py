@@ -5,7 +5,7 @@ Every state change in the system originates from an Event.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON, String, Index, text
@@ -42,7 +42,7 @@ class Event(SQLModel, table=True):
     pd_incident_id: Optional[str] = Field(default=None, max_length=64, nullable=True, index=True)
 
     processed: bool = Field(default=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
 
     __table_args__ = (
         Index(

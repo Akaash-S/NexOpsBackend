@@ -5,7 +5,7 @@ Represents actionable notifications for the operations team.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, String
@@ -35,5 +35,5 @@ class Alert(SQLModel, table=True):
     acknowledged: bool = Field(default=False)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
     last_updated_at: Optional[datetime] = Field(default=None, index=True)
