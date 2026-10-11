@@ -1,26 +1,26 @@
 # Core
-fastapi
-uvicorn[standard]
-python-dotenv
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-dotenv==1.0.1
 
 # Database
-sqlmodel
-sqlalchemy[asyncio]
-asyncpg
-alembic
+sqlmodel==0.0.22
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.29.0
+alembic==1.14.0
 
 # Cache / Event Layer
-redis
+redis==5.0.1
 
 # Validation & Serialization
-pydantic
-pydantic-settings
-email-validator>=2.0.0
+pydantic==2.12.5
+pydantic-settings==2.7.0
+email-validator==2.1.0
 
 # Utilities
-python-dateutil
-httpx
-firebase-admin
-cryptography
-pyyaml
-slowapi
+python-dateutil==2.9.0.post0
+httpx==0.28.1
+firebase-admin==7.5.0
+cryptography==44.0.3
+pyyaml==6.0.3
+slowapi==0.1.9
