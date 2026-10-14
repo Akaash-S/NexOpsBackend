@@ -27,6 +27,11 @@ from app.core.redis import redis_client, init_redis
 from app.core.database import async_session, init_db
 from app.models.event import Event
 from app.services.automation_service import process_event
+import sentry_sdk
+from app.core.sentry import init_sentry
+
+# Initialize Sentry for worker process
+init_sentry("nexops-worker")
 
 STREAM_NAME = "nexops:events"
 GROUP_NAME = "nexops-workers"
@@ -49,6 +54,7 @@ async def init_consumer_group():
             logger.info(f"Consumer group {GROUP_NAME} already exists.")
         else:
             logger.error(f"Failed to create consumer group: {e}")
+            sentry_sdk.capture_exception(e)
             return False
     return True
 
@@ -95,6 +101,7 @@ async def handle_message(msg_id: str, fields: dict):
 
     except Exception as err:
         logger.error(f"Error processing event {event_id}: {err}", exc_info=True)
+        sentry_sdk.capture_exception(err)
         
         # 5. Retry/Dead-letter logic
         next_retry = retry_count + 1
@@ -117,6 +124,7 @@ async def handle_message(msg_id: str, fields: dict):
                 logger.info(f"Event {event_id} successfully dead-lettered.")
             except Exception as dl_err:
                 logger.critical(f"Failed to dead-letter event {event_id}: {dl_err}")
+                sentry_sdk.capture_exception(dl_err)
         else:
             logger.info(f"Re-queueing event {event_id} for retry {next_retry}")
             try:
@@ -133,6 +141,7 @@ async def handle_message(msg_id: str, fields: dict):
                 await redis_client.xack(STREAM_NAME, GROUP_NAME, msg_id)
             except Exception as rq_err:
                 logger.critical(f"Failed to re-queue event {event_id}: {rq_err}")
+                sentry_sdk.capture_exception(rq_err)
 
 async def github_auto_sync_loop():
     """Periodic background task that automatically syncs GitHub repositories, deployments, and prunes deleted repos across active connected workspaces."""
@@ -171,8 +180,10 @@ async def github_auto_sync_loop():
                         logger.info(f"Background GitHub auto-sync completed for user {db_user.id} (workspace {db_user.workspace_id})")
                 except Exception as sync_err:
                     logger.warning(f"Background auto-sync failed for user {uid}: {sync_err}")
+                    sentry_sdk.capture_exception(sync_err)
         except Exception as e:
             logger.error(f"Error in GitHub background auto-sync loop: {e}")
+            sentry_sdk.capture_exception(e)
         
         await asyncio.sleep(60)
 
@@ -245,6 +256,7 @@ async def run_consumer(stop_event: asyncio.Event):
                     await init_consumer_group()
                 else:
                     logger.error(f"Error in consumer loop: {e}")
+                    sentry_sdk.capture_exception(e)
                 await asyncio.sleep(2)  # Cool down on unexpected errors
     finally:
         logger.info("Cancelling background tasks...")

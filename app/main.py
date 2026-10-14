@@ -14,12 +14,16 @@ if sys.platform == "win32":
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+import secrets
+from fastapi import FastAPI, Depends, Request, Response, status, HTTPException
+from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import init_db, get_session
 from app.core.security import init_firebase, get_current_user
+from app.core.sentry import init_sentry
 from app.core.rate_limit import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -74,6 +78,9 @@ async def lifespan(app: FastAPI):
 
 # ── API docs: only available outside production ──────────────────────────
 _is_production = settings.APP_ENV == "production"
+
+# ── Sentry Monitoring ────────────────────────────────────────────────────
+init_sentry("nexops-api")
 
 # --- Create FastAPI App ---
 app = FastAPI(
@@ -249,27 +256,84 @@ async def health_check():
     }
 
 
+async def verify_health_check_access(
+    request: Request,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Verify caller has permission to view detailed system health diagnostics.
+    Permits access via:
+    1. HEALTH_CHECK_SECRET (X-Health-Check-Secret header or Bearer token) for post-deploy smoke runners
+    2. Valid Firebase ID token for authenticated admin users
+    """
+    secret = settings.HEALTH_CHECK_SECRET
+    if secret:
+        header_secret = request.headers.get("X-Health-Check-Secret")
+        if header_secret and secrets.compare_digest(header_secret, secret):
+            return "health_secret_authorized"
+
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            scheme, param = get_authorization_scheme_param(auth_header)
+            if scheme.lower() == "bearer" and secrets.compare_digest(param, secret):
+                return "health_secret_authorized"
+
+    # Fallback to Firebase authentication
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        scheme, param = get_authorization_scheme_param(auth_header)
+        if scheme.lower() == "bearer" and param:
+            from fastapi.security import HTTPAuthorizationCredentials
+            credentials = HTTPAuthorizationCredentials(scheme=scheme, credentials=param)
+            try:
+                user = await get_current_user(credentials=credentials, session=session)
+                if user:
+                    return user
+            except Exception:
+                pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required for detailed health diagnostics.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 @app.get("/health/detailed", tags=["System"])
 @app.get(f"{settings.API_PREFIX}/health/detailed", tags=["System"])
 @limiter.exempt
-async def health_check_detailed(user=Depends(get_current_user)):
+async def health_check_detailed(
+    response: Response,
+    auth=Depends(verify_health_check_access)
+):
     """
-    Authenticated detailed health check — exposes latencies, DB branch, worker
-    heartbeat, and integration reachability. Requires a valid Firebase ID token.
-    Security audit P3-I2: infra metadata gated behind auth.
+    Protected detailed health check — runs read-only diagnostic queries:
+    1. Database connection (SELECT 1)
+    2. Events query with timezone-aware datetime comparison (created_at >= now - 7d)
+    3. Alerts query with timezone-aware datetime comparison (created_at >= now - 7d)
+    4. Current Alembic migration revision from alembic_version table
+    5. Redis ping and latency
+    Returns HTTP 200 and pass status if all checks succeed, or HTTP 503 and fail if any check fails.
     """
     import os
     import time
     import httpx
-    from datetime import datetime
-    from sqlalchemy import text
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import text, type_coerce, DateTime, func
+    from sqlmodel import select
     from app.core.database import async_session
     from app.core.redis import redis_client as _redis
+    from app.models.event import Event
+    from app.models.alert import Alert
 
-    now = datetime.utcnow()
-    uptime_seconds = round((now - START_TIME).total_seconds(), 2)
+    now_utc = datetime.now(timezone.utc)
+    now_naive = datetime.utcnow()
+    uptime_seconds = round((now_naive - START_TIME).total_seconds(), 2)
 
-    # 1. Database
+    checks = {}
+    all_passed = True
+
+    # 1. Database Connection
     db_connected = False
     db_latency_ms = 0.0
     db_branch = "unknown"
@@ -286,34 +350,98 @@ async def health_check_detailed(user=Depends(get_current_user)):
             res.scalar()
         db_connected = True
         db_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        checks["database_connection"] = {"status": "pass", "latency_ms": db_latency_ms}
     except Exception as e:
-        logger.warning(f"Health/detailed DB error: {e}")
+        logger.warning(f"Health/detailed DB connection error: {e}")
+        checks["database_connection"] = {"status": "fail", "latency_ms": db_latency_ms, "error": str(e)}
+        all_passed = False
 
-    # 2. Redis
+    # 2. Events Query (timezone-aware comparison on created_at >= now-7d)
+    events_count = 0
+    events_latency_ms = 0.0
+    try:
+        seven_days_ago = now_utc - timedelta(days=7)
+        t0 = time.perf_counter()
+        async with async_session() as session:
+            stmt = select(func.count(Event.id)).where(
+                type_coerce(Event.created_at, DateTime(timezone=True)) >= seven_days_ago
+            )
+            res = await session.execute(stmt)
+            events_count = res.scalar() or 0
+        events_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        checks["database_events_query"] = {"status": "pass", "latency_ms": events_latency_ms, "count": events_count}
+    except Exception as e:
+        logger.warning(f"Health/detailed events query error: {e}")
+        checks["database_events_query"] = {"status": "fail", "latency_ms": events_latency_ms, "error": str(e)}
+        all_passed = False
+
+    # 3. Alerts Query (timezone-aware comparison on created_at >= now-7d)
+    alerts_count = 0
+    alerts_latency_ms = 0.0
+    try:
+        seven_days_ago = now_utc - timedelta(days=7)
+        t0 = time.perf_counter()
+        async with async_session() as session:
+            stmt = select(func.count(Alert.id)).where(
+                type_coerce(Alert.created_at, DateTime(timezone=True)) >= seven_days_ago
+            )
+            res = await session.execute(stmt)
+            alerts_count = res.scalar() or 0
+        alerts_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        checks["database_alerts_query"] = {"status": "pass", "latency_ms": alerts_latency_ms, "count": alerts_count}
+    except Exception as e:
+        logger.warning(f"Health/detailed alerts query error: {e}")
+        checks["database_alerts_query"] = {"status": "fail", "latency_ms": alerts_latency_ms, "error": str(e)}
+        all_passed = False
+
+    # 4. Alembic Revision Check
+    alembic_rev = None
+    alembic_latency_ms = 0.0
+    try:
+        t0 = time.perf_counter()
+        async with async_session() as session:
+            res = await session.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+            alembic_rev = res.scalar()
+        if not alembic_rev:
+            raise ValueError("No revision found in alembic_version table")
+        alembic_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        checks["database_alembic_revision"] = {"status": "pass", "revision": alembic_rev, "latency_ms": alembic_latency_ms}
+    except Exception as e:
+        logger.warning(f"Health/detailed Alembic revision check error: {e}")
+        checks["database_alembic_revision"] = {"status": "fail", "latency_ms": alembic_latency_ms, "error": str(e)}
+        all_passed = False
+
+    # 5. Redis Ping Check
     redis_connected = False
     redis_latency_ms = 0.0
     queue_depth = 0
     worker_last_heartbeat = None
     try:
-        if _redis:
-            t0 = time.perf_counter()
-            if await _redis.ping():
-                redis_connected = True
-                redis_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-                try:
-                    queue_depth = await _redis.xlen("nexops:events")
-                except Exception:
-                    pass
-                try:
-                    hb = await _redis.get("nexops:worker:heartbeat")
-                    if hb:
-                        worker_last_heartbeat = hb.decode() if isinstance(hb, bytes) else str(hb)
-                except Exception:
-                    pass
+        if not _redis:
+            raise RuntimeError("Redis client is not configured")
+        t0 = time.perf_counter()
+        if await _redis.ping():
+            redis_connected = True
+            redis_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            checks["redis_ping"] = {"status": "pass", "latency_ms": redis_latency_ms}
+            try:
+                queue_depth = await _redis.xlen("nexops:events")
+            except Exception:
+                pass
+            try:
+                hb = await _redis.get("nexops:worker:heartbeat")
+                if hb:
+                    worker_last_heartbeat = hb.decode() if isinstance(hb, bytes) else str(hb)
+            except Exception:
+                pass
+        else:
+            raise RuntimeError("Redis ping returned False")
     except Exception as e:
         logger.warning(f"Health/detailed Redis error: {e}")
+        checks["redis_ping"] = {"status": "fail", "latency_ms": redis_latency_ms, "error": str(e)}
+        all_passed = False
 
-    # 3. Integrations reachability
+    # 6. Integrations Reachability (diagnostic only)
     gh_reachable, gh_latency_ms = False, 0.0
     pd_reachable, pd_latency_ms = False, 0.0
     try:
@@ -337,7 +465,10 @@ async def health_check_detailed(user=Depends(get_current_user)):
     except Exception as e:
         logger.warning(f"Health/detailed HTTP error: {e}")
 
-    overall_status = "operational" if (db_connected and redis_connected) else "degraded"
+    overall_status = "pass" if all_passed else "fail"
+    if not all_passed:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
         "status": overall_status,
         "service": settings.APP_NAME,
@@ -345,7 +476,8 @@ async def health_check_detailed(user=Depends(get_current_user)):
         "commit_sha": os.getenv("RENDER_GIT_COMMIT", "unknown"),
         "deployed_at": os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z"),
         "uptime_seconds": uptime_seconds,
-        "database": {"connected": db_connected, "branch": db_branch, "latency_ms": db_latency_ms},
+        "checks": checks,
+        "database": {"connected": db_connected, "branch": db_branch, "latency_ms": db_latency_ms, "revision": alembic_rev},
         "redis": {"connected": redis_connected, "latency_ms": redis_latency_ms},
         "worker": {"last_heartbeat_at": worker_last_heartbeat, "queue_depth": queue_depth},
         "integrations": {
