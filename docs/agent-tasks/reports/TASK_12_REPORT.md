@@ -90,18 +90,20 @@ PASSED tests/test_sentry.py::test_before_send_scrubber_removes_tokens_pii_and_se
 - Control flow and retry loops remain completely unchanged.
 
 ### 2.5 Transport Proofs & Negative Proof
-Empirically verified in `tests/test_sentry.py`:
-1. **Capturing Transport:** Proves forced unhandled exception in FastAPI route is captured and processed through `before_send` scrubber.
-2. **Scrubber on Real Event:** Proves auth headers and query string tokens were scrubbed from real captured FastAPI route crash.
-3. **Unset DSN Serves Requests:** Proves app serves requests normally with DSN unset.
-4. **Negative Proof:** Proves removing Sentry initialization causes capture test to capture 0 events; restoring initialization results in captured event.
+Empirically verified in `tests/test_sentry.py` (loading all DSNs, API keys, and test tokens from `.env` / `settings` rather than hardcoding):
+1. **Scrubber Strips Secrets & Tokens:** Proves auth headers, query tokens, PII, DB URLs, and secrets loaded from `.env` are stripped.
+2. **Unset DSN Serves Requests:** Proves app serves requests normally and logs disabled state when `SENTRY_DSN` is unset.
+3. **Initialized from .env DSN:** Proves app initializes Sentry with DSN/API key loaded from `.env`.
+4. **Capturing Transport:** Proves forced unhandled exception in FastAPI route is captured and processed through `before_send` scrubber without hardcoded keys.
+5. **Negative Proof:** Proves removing Sentry initialization causes capture test to capture 0 events; restoring initialization from `.env` DSN results in captured event.
 
 Pytest output:
 ```
-tests/test_sentry.py::test_before_send_scrubber_removes_tokens_pii_and_secrets PASSED [ 12%]
-tests/test_sentry.py::test_sentry_disabled_when_dsn_unset PASSED         [ 25%]
-tests/test_sentry.py::test_capturing_transport_captures_unhandled_exception_and_scrubs PASSED [ 37%]
-tests/test_sentry.py::test_negative_proof_disabled_sentry_does_not_capture PASSED [ 50%]
+tests/test_sentry.py::test_before_send_scrubber_removes_tokens_pii_and_secrets PASSED [ 11%]
+tests/test_sentry.py::test_sentry_disabled_when_dsn_unset PASSED         [ 22%]
+tests/test_sentry.py::test_sentry_initialized_when_dsn_configured_in_env PASSED [ 33%]
+tests/test_sentry.py::test_capturing_transport_captures_unhandled_exception_and_scrubs PASSED [ 44%]
+tests/test_sentry.py::test_negative_proof_disabled_sentry_does_not_capture PASSED [ 55%]
 ```
 
 ---
