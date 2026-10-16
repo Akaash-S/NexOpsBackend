@@ -41,6 +41,25 @@ logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 logger = logging.getLogger("nexops")
 
 
+def mask_database_url(url_str: str) -> str:
+    """
+    Mask user, password, and host in database connection URL.
+    Returns only driver and database name (e.g. 'postgresql+asyncpg://[MASKED]/nexops_dev').
+    """
+    if not url_str:
+        return "[EMPTY]"
+    try:
+        from sqlalchemy.engine import make_url
+        u = make_url(url_str)
+        dbname = u.database or ""
+        return f"{u.drivername}://[MASKED]/{dbname}"
+    except Exception:
+        parts = url_str.split("://", 1)
+        driver = parts[0] if len(parts) > 1 else "unknown"
+        dbname = url_str.rsplit("/", 1)[-1].split("?")[0] if "/" in url_str else "unknown"
+        return f"{driver}://[MASKED]/{dbname}"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle events."""
@@ -48,7 +67,7 @@ async def lifespan(app: FastAPI):
     logger.info("-" * 60)
     logger.info(f"  {settings.APP_NAME} Engine Starting...")
     logger.info(f"  Environment: {settings.APP_ENV}")
-    logger.info(f"  Database: {settings.DATABASE_URL[:40]}...")
+    logger.info(f"  Database: {mask_database_url(settings.DATABASE_URL)}")
     logger.info("-" * 60)
 
     # Security Guard: Refuse to start if mock authentication is enabled in production
@@ -362,16 +381,14 @@ async def health_check_detailed(
         checks["database_connection"] = {"status": "fail", "latency_ms": db_latency_ms, "error": str(e)}
         all_passed = False
 
-    # 2. Events Query (timezone-aware comparison on created_at >= now-7d)
+    # 2. Events Query (reuse exact real service query pattern without type_coerce)
     events_count = 0
     events_latency_ms = 0.0
     try:
         seven_days_ago = now_utc - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
-            stmt = select(func.count(Event.id)).where(
-                type_coerce(Event.created_at, DateTime(timezone=True)) >= seven_days_ago
-            )
+            stmt = select(func.count(Event.id)).where(Event.created_at >= seven_days_ago)
             res = await session.execute(stmt)
             events_count = res.scalar() or 0
         events_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -381,16 +398,14 @@ async def health_check_detailed(
         checks["database_events_query"] = {"status": "fail", "latency_ms": events_latency_ms, "error": str(e)}
         all_passed = False
 
-    # 3. Alerts Query (timezone-aware comparison on created_at >= now-7d)
+    # 3. Alerts Query (reuse exact real service query pattern without type_coerce)
     alerts_count = 0
     alerts_latency_ms = 0.0
     try:
         seven_days_ago = now_utc - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
-            stmt = select(func.count(Alert.id)).where(
-                type_coerce(Alert.created_at, DateTime(timezone=True)) >= seven_days_ago
-            )
+            stmt = select(func.count(Alert.id)).where(Alert.created_at >= seven_days_ago)
             res = await session.execute(stmt)
             alerts_count = res.scalar() or 0
         alerts_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -471,6 +486,55 @@ async def health_check_detailed(
     except Exception as e:
         logger.warning(f"Health/detailed HTTP error: {e}")
 
+    # 6. Package Versions Check (installed vs pinned requirements.txt)
+    package_versions = {}
+    expected_versions = {}
+    version_mismatches = []
+    core_packages = ["sqlmodel", "sqlalchemy", "asyncpg", "pydantic", "fastapi"]
+
+    from pathlib import Path
+    import importlib.metadata
+    pinned_map = {
+        "fastapi": "0.115.6",
+        "sqlmodel": "0.0.22",
+        "sqlalchemy": "2.0.36",
+        "asyncpg": "0.29.0",
+        "pydantic": "2.12.5",
+    }
+    try:
+        req_file = Path(__file__).resolve().parent.parent / "requirements.txt"
+        if req_file.exists():
+            for req_line in req_file.read_text(encoding="utf-8").splitlines():
+                req_line = req_line.strip()
+                for pkg in core_packages:
+                    if req_line.startswith(f"{pkg}=="):
+                        pinned_map[pkg] = req_line.split("==")[1].strip()
+                    elif pkg == "sqlalchemy" and req_line.startswith("sqlalchemy[asyncio]=="):
+                        pinned_map["sqlalchemy"] = req_line.split("==")[1].strip()
+    except Exception:
+        pass
+
+    for pkg in core_packages:
+        expected = pinned_map.get(pkg)
+        expected_versions[pkg] = expected
+        try:
+            inst = importlib.metadata.version(pkg)
+            package_versions[pkg] = inst
+            if expected and inst != expected:
+                version_mismatches.append(f"{pkg} installed ({inst}) != expected ({expected})")
+        except Exception as e:
+            package_versions[pkg] = f"error: {e}"
+            version_mismatches.append(f"{pkg} not found: {e}")
+
+    checks["package_versions"] = {
+        "status": "pass" if not version_mismatches else "fail",
+        "installed": package_versions,
+        "expected": expected_versions,
+        "mismatches": version_mismatches,
+    }
+    if version_mismatches:
+        all_passed = False
+
     overall_status = "pass" if all_passed else "fail"
     if not all_passed:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -479,6 +543,7 @@ async def health_check_detailed(
         "status": overall_status,
         "service": settings.APP_NAME,
         "version": "1.0.0",
+        "package_versions": package_versions,
         "commit_sha": os.getenv("RENDER_GIT_COMMIT", "unknown"),
         "deployed_at": os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z"),
         "uptime_seconds": uptime_seconds,

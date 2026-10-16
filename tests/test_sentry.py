@@ -5,6 +5,7 @@ file without hardcoding credentials in test files.
 """
 
 import os
+import json
 import pytest
 import sentry_sdk
 from sentry_sdk.transport import _FunctionTransport
@@ -300,3 +301,139 @@ def test_negative_proof_disabled_sentry_does_not_capture():
     # Proves positive restored case
     assert len(captured) == 1
     assert "Restored crash" in captured[0].get("exception", {}).get("values", [{}])[0].get("value", "")
+
+
+def test_capturing_transport_frame_locals_and_tokens_scrubbed_from_json():
+    """
+    Task 12b - Item 1c:
+    Force an exception in a frame whose local variables hold fake tokens of each type
+    (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_, PagerDuty tokens, Firebase ID token,
+    Fernet token, runtime secrets) and a fake email; prove none appear anywhere in the
+    captured event JSON (serialize the whole event and assert absence).
+    """
+    test_dsn = _get_test_dsn()
+    captured = []
+    transport = _FunctionTransport(lambda ev: captured.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport,
+        send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
+        before_send=before_send_handler,
+        traces_sample_rate=0.0,
+    )
+
+    fake_ghp = "ghp_1234567890abcdefghijklmnopqrstuvwxyz"
+    fake_gho = "gho_abcdefghijklmnopqrstuvwxyz1234567890"
+    fake_ghu = "ghu_11223344556677889900aabbccddeeffgghh"
+    fake_ghs = "ghs_servertoken123456789012345678901234"
+    fake_ghr = "ghr_refreshtoken12345678901234567890123"
+    fake_pat = "github_pat_11AABBCCDDEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTUUVVWWXXYYZZ"
+    fake_pd_u = "u+testpagerdutytoken123456789"
+    fake_pd_api = "pd_apikey1234567890abcdef"
+    fake_firebase = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJmYWtlLXVpZCIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signaturepart123456789"
+    fake_fernet = "gAAAAABfakefernettoken1234567890123456789012345678901234567890"
+    fake_email = "victim-local-var@secretcorp.internal"
+    fake_health_secret = getattr(settings, "HEALTH_CHECK_SECRET", None) or "env-health-secret"
+    fake_encryption_key = getattr(settings, "ENCRYPTION_KEY", None) or "env-encryption-key"
+
+    try:
+        # Deliberately raise exception inside this frame where all tokens are local variables
+        raise ValueError(
+            f"Failure in handler with {fake_ghp} and email {fake_email} and {fake_pd_api}"
+        )
+    except Exception as exc:
+        sentry_sdk.capture_exception(exc)
+
+    sentry_sdk.flush()
+
+    assert len(captured) >= 1
+    event = captured[0]
+
+    # Serialize whole event to JSON string
+    event_json = json.dumps(event)
+
+    # Prove none of the tokens, secrets, or PII appear anywhere in the entire event JSON
+    assert fake_ghp not in event_json
+    assert fake_gho not in event_json
+    assert fake_ghu not in event_json
+    assert fake_ghs not in event_json
+    assert fake_ghr not in event_json
+    assert fake_pat not in event_json
+    assert fake_pd_u not in event_json
+    assert fake_pd_api not in event_json
+    assert fake_firebase not in event_json
+    assert fake_fernet not in event_json
+    assert fake_email not in event_json
+    if fake_health_secret:
+        assert fake_health_secret not in event_json
+    if fake_encryption_key:
+        assert fake_encryption_key not in event_json
+
+
+def test_negative_proof_local_vars_captured_when_include_local_variables_true():
+    """
+    Task 12b - Item 1c Negative Proof:
+    When include_local_variables=True and no scrubber hook is applied,
+    prove that frame local variables and tokens DO leak into the captured event JSON.
+    Then restore include_local_variables=False and before_send, and prove they do not leak.
+    """
+    test_dsn = _get_test_dsn()
+
+    # --- NEGATIVE PHASE: include_local_variables=True, no scrubber ---
+    captured_unscrubbed = []
+    transport_unscrubbed = _FunctionTransport(lambda ev: captured_unscrubbed.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport_unscrubbed,
+        include_local_variables=True,  # Default Sentry SDK 2.x behavior
+        before_send=None,             # No scrubber hook
+    )
+
+    secret_local_token = "ghp_leakedvariable9876543210zyxwvutsrq"
+    secret_local_email = "leaked-developer@secretcompany.com"
+
+    try:
+        raise RuntimeError("Unscrubbed crash for negative verification")
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+    sentry_sdk.flush()
+
+    assert len(captured_unscrubbed) >= 1
+    unscrubbed_event_json = json.dumps(captured_unscrubbed[0])
+
+    # REAL FAILING ASSERTION IN REVERTED STATE:
+    # Proves that with include_local_variables=True and no scrubber, secrets are present in stack frames
+    assert secret_local_token in unscrubbed_event_json
+    assert secret_local_email in unscrubbed_event_json
+
+    # --- RESTORED PHASE: include_local_variables=False + before_send_handler ---
+    captured_restored = []
+    transport_restored = _FunctionTransport(lambda ev: captured_restored.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport_restored,
+        include_local_variables=False,  # Enforced privacy setting
+        send_default_pii=False,
+        before_send=before_send_handler, # Scrubber restored
+    )
+
+    try:
+        raise RuntimeError(f"Restored crash with message token={secret_local_token}")
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+    sentry_sdk.flush()
+
+    assert len(captured_restored) >= 1
+    restored_event_json = json.dumps(captured_restored[0])
+
+    # Proves complete absence in restored state
+    assert secret_local_token not in restored_event_json
+    assert secret_local_email not in restored_event_json
+
