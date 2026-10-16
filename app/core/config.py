@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str
+    REDIS_MAX_CONNECTIONS: int = 50
 
     # CORS
     CORS_ORIGINS: str

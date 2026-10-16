@@ -25,7 +25,8 @@ engine = create_async_engine(
     pool_pre_ping=True,
     connect_args=connect_args,
     pool_size=10,  # Maintain 10 connections
-    max_overflow=20,  # Allow 20 additional connections under load
+    max_overflow=30,  # Cap at 30 overflow connections (max 40 total, safe for local Postgres limit 100)
+    pool_timeout=60,  # Wait up to 60s during concurrent bursts
     pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
