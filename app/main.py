@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Database: {settings.DATABASE_URL[:40]}...")
     logger.info("-" * 60)
 
+    # Security Guard: Refuse to start if mock authentication is enabled in production
+    import os
+    if settings.APP_ENV == "production":
+        if getattr(settings, "ALLOW_MOCK_AUTH", False) or os.getenv("ALLOW_MOCK_AUTH", "").lower() in ("true", "1"):
+            logger.critical("FATAL: Refusing to start — mock authentication is strictly forbidden in production!")
+            raise RuntimeError("Refusing to start: Mock authentication is strictly forbidden in production (APP_ENV=production).")
+
     # Initialize Firebase Admin
     init_firebase()
 
@@ -213,8 +220,8 @@ async def websocket_endpoint(
         manager.disconnect(websocket)
 
 
-from datetime import datetime
-START_TIME = datetime.utcnow()
+from datetime import datetime, timezone
+START_TIME = datetime.now(timezone.utc)
 
 
 @app.get("/health", tags=["System"])
@@ -327,8 +334,7 @@ async def health_check_detailed(
     from app.models.alert import Alert
 
     now_utc = datetime.now(timezone.utc)
-    now_naive = datetime.utcnow()
-    uptime_seconds = round((now_naive - START_TIME).total_seconds(), 2)
+    uptime_seconds = round((now_utc - START_TIME).total_seconds(), 2)
 
     checks = {}
     all_passed = True
