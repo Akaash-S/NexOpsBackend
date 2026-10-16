@@ -8,7 +8,7 @@ cannot inflate correlation point scores or inject synthetic reason strings.
 import uuid
 import json
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from sqlalchemy import text
 from sqlmodel import select
@@ -55,8 +55,8 @@ async def test_payload_score_boost_ignored():
             color="purple",
             provider="github",
             status="connected",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         session.add(ws)
         await session.flush()
@@ -68,8 +68,8 @@ async def test_payload_score_boost_ignored():
             full_name="Security Test User",
             role="admin",
             workspace_id=ws_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         session.add(usr)
         await session.flush()
@@ -82,13 +82,13 @@ async def test_payload_score_boost_ignored():
             default_branch="main",
             workspace_id=ws_id,
             user_id=usr_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
         )
         session.add(repo)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Event ingested 5 minutes before incident with malicious payload boost
         event_id = f"evt-sec-{uuid.uuid4().hex[:8]}"
         evt = Event(
@@ -156,25 +156,25 @@ async def test_payload_parity_clean_vs_boost_payload():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-parity-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Parity WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        ws = Workspace(id=ws_id, name="Parity WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-parity-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Parity User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Parity User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(usr)
         await session.flush()
 
         repo_a_id = f"repo-parity-a-{uuid.uuid4().hex[:8]}"
-        repo_a = Repo(id=repo_a_id, name="service-clean", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_a = Repo(id=repo_a_id, name="service-clean", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(repo_a)
 
         repo_b_id = f"repo-parity-b-{uuid.uuid4().hex[:8]}"
-        repo_b = Repo(id=repo_b_id, name="service-boosted", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_b = Repo(id=repo_b_id, name="service-boosted", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(repo_b)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Clean event
         evt_clean = Event(
             id=f"evt-clean-{uuid.uuid4().hex[:8]}",
@@ -240,21 +240,21 @@ async def test_reason_string_never_emits_test_score_boost():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-reason-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Reason Test WS", color="orange", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        ws = Workspace(id=ws_id, name="Reason Test WS", color="orange", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-reason-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Reason User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Reason User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(usr)
         await session.flush()
 
         repo_id = f"repo-reason-{uuid.uuid4().hex[:8]}"
-        repo = Repo(id=repo_id, name="payment-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo = Repo(id=repo_id, name="payment-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         session.add(repo)
         await session.flush()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Create multiple events with various forms of test_score_boost
         payloads_to_test = [
             {"test_score_boost": 10.0},

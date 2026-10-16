@@ -184,7 +184,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     Calculate the deployment risk score and risk basis for a repository.
     Reuses the exact weights from correlate_incident_causes() based on active/recent incident history.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from app.models.incident import Incident
     from app.models.candidate_cause import CandidateCause
     
@@ -192,7 +192,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     downstream_repos = await get_downstream_repos(session, repo_id)
     
     # 2. Check conditions
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
     ninety_days_ago = now - timedelta(days=90)
     
