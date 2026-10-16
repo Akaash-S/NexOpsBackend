@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from app.models.repo import Repo
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("nexops.vcs")
 
@@ -253,8 +253,8 @@ class VCService:
                 language=raw.get("language") or raw.get("programming_language"),
                 default_branch=raw.get("default_branch") or "main",
                 owner=raw.get("owner", {}).get("login") if provider == "github" else None,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
             )
 
             if provider == "github":
@@ -264,20 +264,20 @@ class VCService:
                 pushed = raw.get("pushed_at")
                 if pushed:
                     try:
-                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00")).replace(tzinfo=None)
+                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
                     except (ValueError, AttributeError):
                         pass
                 gh_updated = raw.get("updated_at")
                 if gh_updated:
                     try:
-                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00")).replace(tzinfo=None)
+                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
                     except (ValueError, AttributeError):
                         pass
 
             # Calculate real activity score based on push/commit recency
             target_dt = repo.last_commit_at or repo.github_updated_at
             if target_dt:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 diff_days = (now - target_dt).total_seconds() / 86400.0
                 if diff_days <= 1.0:
                     repo.activity = 98.0
