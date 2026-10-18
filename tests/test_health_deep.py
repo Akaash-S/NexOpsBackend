@@ -143,7 +143,14 @@ async def test_protected_health_detailed_requires_auth(async_client, monkeypatch
             )
             assert resp_fb.status_code == 401
 
-        # 6. Never log the secret
+            # 6. Non-ASCII / Latin-1 header value -> 401 (never 500)
+            resp_latin1 = await client.get(
+                "/health/detailed",
+                headers=[(b"x-health-check-secret", "é".encode("latin-1"))]
+            )
+            assert resp_latin1.status_code == 401
+
+        # 7. Never log the secret
         assert configured_secret not in caplog.text
 
 

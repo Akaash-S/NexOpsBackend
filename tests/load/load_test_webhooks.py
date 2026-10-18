@@ -37,6 +37,38 @@ from app.api.routes.integrations import _make_pd_uid_token
 from app.worker.stream_consumer import handle_message, init_consumer_group, STREAM_NAME, GROUP_NAME
 
 
+def verify_localhost_target(target_url: str = None):
+    """
+    Ensure load tests execute exclusively against local development environments.
+    Strictly refuses execution if DATABASE_URL, REDIS_URL, or TARGET_URL points to a remote host.
+    """
+    from urllib.parse import urlparse
+
+    # 1. Check Target URL if provided via argument or environment
+    candidate_target = target_url or os.getenv("TARGET_URL") or os.getenv("BASE_URL")
+    if candidate_target:
+        parsed = urlparse(candidate_target)
+        host = parsed.hostname or ""
+        if host not in ("localhost", "127.0.0.1", "::1"):
+            print(f"\n[CRITICAL SAFETY REFUSAL] Target host '{host}' is NOT localhost!")
+            print("Load tests are strictly prohibited from targeting remote, staging, or production environments.")
+            raise RuntimeError(f"SAFETY REFUSAL: Target host '{host}' is non-local.")
+
+    # 2. Check Database URL host
+    db_parsed = urlparse(settings.DATABASE_URL)
+    db_host = db_parsed.hostname or ""
+    if db_host not in ("localhost", "127.0.0.1", "::1"):
+        print(f"\n[CRITICAL SAFETY REFUSAL] DATABASE_URL host '{db_host}' is NOT localhost!")
+        raise RuntimeError(f"SAFETY REFUSAL: DATABASE_URL host '{db_host}' is non-local.")
+
+    # 3. Check Redis URL host
+    redis_parsed = urlparse(settings.REDIS_URL)
+    redis_host = redis_parsed.hostname or ""
+    if redis_host not in ("localhost", "127.0.0.1", "::1"):
+        print(f"\n[CRITICAL SAFETY REFUSAL] REDIS_URL host '{redis_host}' is NOT localhost!")
+        raise RuntimeError(f"SAFETY REFUSAL: REDIS_URL host '{redis_host}' is non-local.")
+
+
 def get_machine_specs() -> Dict[str, str]:
     return {
         "os": f"{platform.system()} {platform.release()} ({platform.version()})",
@@ -243,6 +275,9 @@ async def benchmark_worker_throughput(ws_id: str, repo_id: str, batch_size: int 
 
 
 async def main():
+    # Enforce localhost only: strictly abort if target or databases are non-local
+    verify_localhost_target()
+
     print("=" * 70)
     print("   NEXOPS PERFORMANCE BENCHMARK (LOCAL LOAD SUITE)")
     print("=" * 70)

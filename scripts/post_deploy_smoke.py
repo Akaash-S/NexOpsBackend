@@ -104,31 +104,33 @@ def run_smoke_check(base_url: str) -> bool:
         print(f"  --> HTTP {detailed_code} in {elapsed}ms | Top-level status: '{detailed_data.get('status')}'")
 
     # 3. Print Installed Package Versions & Check for Mismatches
-    pkg_check = detailed_data.get("checks", {}).get("package_versions", {})
-    installed_versions = detailed_data.get("package_versions") or pkg_check.get("installed", {})
-    expected_versions = pkg_check.get("expected", {})
-    mismatches = pkg_check.get("mismatches", [])
-
-    print("\nInstalled Package Versions (vs pinned requirements.txt):")
-    print(f"  {'PACKAGE':<15} | {'INSTALLED':<12} | {'EXPECTED PINNED':<15} | {'STATUS'}")
-    print("  " + "-" * 55)
-    for pkg in ["sqlmodel", "sqlalchemy", "asyncpg", "pydantic", "fastapi"]:
-        inst = installed_versions.get(pkg, "unknown")
-        exp = expected_versions.get(pkg, "unknown")
-        status_str = "MATCH" if (inst == exp and inst != "unknown") else "MISMATCH"
-        print(f"  {pkg:<15} | {str(inst):<12} | {str(exp):<15} | {status_str}")
-
-    if pkg_check.get("status") != "pass" or mismatches:
-        print(f"\n  [!] VERSION MISMATCH DETECTED: {mismatches}")
-        all_passed = False
-
-    # 4. Inspect individual diagnostic checks
     checks = detailed_data.get("checks", {})
     if not checks:
-        print("  --> WARNING: No 'checks' object found in response.")
-        if detailed_code != 200:
-            all_passed = False
+        if detailed_code == 401:
+            print("\n  [!] auth failed (HTTP 401), versions not available")
+        else:
+            print(f"\n  [!] Response has no 'checks' object (HTTP {detailed_code}), versions not available.")
+        all_passed = False
     else:
+        pkg_check = checks.get("package_versions", {})
+        installed_versions = detailed_data.get("package_versions") or pkg_check.get("installed", {})
+        expected_versions = pkg_check.get("expected", {})
+        mismatches = pkg_check.get("mismatches", [])
+
+        print("\nInstalled Package Versions (vs pinned requirements.txt):")
+        print(f"  {'PACKAGE':<15} | {'INSTALLED':<12} | {'EXPECTED PINNED':<15} | {'STATUS'}")
+        print("  " + "-" * 55)
+        for pkg in ["sqlmodel", "sqlalchemy", "asyncpg", "pydantic", "fastapi"]:
+            inst = installed_versions.get(pkg, "unknown")
+            exp = expected_versions.get(pkg, "unknown")
+            status_str = "MATCH" if (inst == exp and inst != "unknown") else "MISMATCH"
+            print(f"  {pkg:<15} | {str(inst):<12} | {str(exp):<15} | {status_str}")
+
+        if pkg_check.get("status") != "pass" or mismatches:
+            print(f"\n  [!] VERSION MISMATCH DETECTED: {mismatches}")
+            all_passed = False
+
+        # 4. Inspect individual diagnostic checks
         print("\nIndividual Diagnostic Checks:")
         print(f"  {'CHECK NAME':<30} | {'STATUS':<6} | {'DETAILS'}")
         print("  " + "-" * 65)

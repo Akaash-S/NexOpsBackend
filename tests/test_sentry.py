@@ -569,10 +569,38 @@ def test_worker_rate_limiter_negative_proof_and_bounded_cache(monkeypatch):
     # Must be bounded strictly at 200
     assert len(_ERROR_RATE_LIMIT_CACHE) == 200
     # Oldest 50 (indices 0..49) must have been evicted
-    assert "sig_0:Exception:Unique failure code #0" not in _ERROR_RATE_LIMIT_CACHE
-    assert "sig_49:Exception:Unique failure code #49" not in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_0:Exception" not in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_49:Exception" not in _ERROR_RATE_LIMIT_CACHE
     # Newest (indices 50..249) must be retained
-    assert "sig_50:Exception:Unique failure code #50" in _ERROR_RATE_LIMIT_CACHE
-    assert "sig_249:Exception:Unique failure code #249" in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_50:Exception" in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_249:Exception" in _ERROR_RATE_LIMIT_CACHE
+
+
+def test_worker_rate_limiter_50_event_ids_single_capture(monkeypatch):
+    """
+    Task 12d - Item 3:
+    50 different event_ids failing with the same error type inside 15 minutes -> exactly 1 capture.
+    Proves that event_ids and uids are completely removed from error signature.
+    """
+    import uuid
+    from app.worker.stream_consumer import (
+        capture_worker_exception_rate_limited,
+        _ERROR_RATE_LIMIT_CACHE,
+    )
+
+    captured_events = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_events.append(e))
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    err = ConnectionResetError("Remote server closed database connection unexpectedly")
+    clock_time = 5000.0
+
+    # Trigger 50 errors with 50 different event_ids within 15 minutes (advancing clock by 5s each = 250s total < 900s)
+    for i in range(50):
+        evt_id = f"evt-{uuid.uuid4().hex}"
+        capture_worker_exception_rate_limited(err, key_prefix=f"worker_event_{evt_id}", _clock=clock_time + (i * 5.0))
+
+    # Exactly 1 capture must fire to Sentry
+    assert len(captured_events) == 1, f"Expected exactly 1 capture for 50 event_ids, got {len(captured_events)}"
 
 

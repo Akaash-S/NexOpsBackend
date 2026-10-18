@@ -53,10 +53,14 @@ def capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "", 
     Rate-cap and deduplicate worker exceptions sent to Sentry.
     Prevents repeated failures in worker loops (e.g. 60s auto-sync failing repeatedly)
     from exhausting the Sentry quota. Bounded to max 200 unique signatures (LRU order).
+    Error signature is strictly call site + exception class (event_ids and uids removed).
     Returns True if exception was sent to Sentry, False if deduplicated/suppressed.
     """
     now = _clock() if callable(_clock) else (float(_clock) if _clock is not None else time.time())
-    err_sig = f"{key_prefix}:{type(err).__name__}:{str(err)}"
+    # Normalize key_prefix to static call site (strip trailing event/user IDs)
+    import re
+    call_site = re.sub(r'_(?:[0-9a-fA-F-]{4,}|[a-zA-Z0-9_\-]{8,})$', '', key_prefix) if key_prefix else "worker"
+    err_sig = f"{call_site}:{type(err).__name__}"
 
     suppressed = 0
     if err_sig in _ERROR_RATE_LIMIT_CACHE:
@@ -150,7 +154,7 @@ async def handle_message(msg_id: str, fields: dict):
 
     except Exception as err:
         logger.error(f"Error processing event {event_id}: {err}", exc_info=True)
-        capture_worker_exception_rate_limited(err, key_prefix=f"worker_event_{event_id}")
+        capture_worker_exception_rate_limited(err, key_prefix="worker_event")
 
         # 5. Retry/Dead-letter logic
         next_retry = retry_count + 1
@@ -173,7 +177,7 @@ async def handle_message(msg_id: str, fields: dict):
                 logger.info(f"Event {event_id} successfully dead-lettered.")
             except Exception as dl_err:
                 logger.critical(f"Failed to dead-letter event {event_id}: {dl_err}")
-                capture_worker_exception_rate_limited(dl_err, key_prefix=f"worker_dead_letter_{event_id}")
+                capture_worker_exception_rate_limited(dl_err, key_prefix="worker_dead_letter")
         else:
             logger.info(f"Re-queueing event {event_id} for retry {next_retry}")
             try:
@@ -190,7 +194,7 @@ async def handle_message(msg_id: str, fields: dict):
                 await redis_client.xack(STREAM_NAME, GROUP_NAME, msg_id)
             except Exception as rq_err:
                 logger.critical(f"Failed to re-queue event {event_id}: {rq_err}")
-                capture_worker_exception_rate_limited(rq_err, key_prefix=f"worker_requeue_{event_id}")
+                capture_worker_exception_rate_limited(rq_err, key_prefix="worker_requeue")
 
 async def github_auto_sync_loop():
     """Periodic background task that automatically syncs GitHub repositories, deployments, and prunes deleted repos across active connected workspaces."""
@@ -229,7 +233,7 @@ async def github_auto_sync_loop():
                         logger.info(f"Background GitHub auto-sync completed for user {db_user.id} (workspace {db_user.workspace_id})")
                 except Exception as sync_err:
                     logger.warning(f"Background auto-sync failed for user {uid}: {sync_err}")
-                    capture_worker_exception_rate_limited(sync_err, key_prefix=f"auto_sync_user_{uid}")
+                    capture_worker_exception_rate_limited(sync_err, key_prefix="auto_sync_user")
         except Exception as e:
             logger.error(f"Error in GitHub background auto-sync loop: {e}")
             capture_worker_exception_rate_limited(e, key_prefix="auto_sync_loop")

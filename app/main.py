@@ -329,8 +329,14 @@ async def verify_health_check_access(
             if scheme.lower() == "bearer" and param:
                 provided = param
 
-    if provided and hmac.compare_digest(provided, secret):
-        return "health_secret_authorized"
+    if provided:
+        try:
+            provided_bytes = provided.encode("utf-8")
+            secret_bytes = secret.encode("utf-8")
+            if hmac.compare_digest(provided_bytes, secret_bytes):
+                return "health_secret_authorized"
+        except Exception:
+            pass
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -553,13 +559,18 @@ async def health_check_detailed(
     if not all_passed:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
+    deployed_at = os.getenv("RENDER_DEPLOYED_AT")
+    if not deployed_at:
+        iso_str = START_TIME.isoformat()
+        deployed_at = iso_str.replace("+00:00", "Z") if "+00:00" in iso_str else (iso_str + "Z" if not iso_str.endswith("Z") else iso_str)
+
     return {
         "status": overall_status,
         "service": settings.APP_NAME,
         "version": "1.0.0",
         "package_versions": package_versions,
         "commit_sha": os.getenv("RENDER_GIT_COMMIT", "unknown"),
-        "deployed_at": os.getenv("RENDER_DEPLOYED_AT", START_TIME.isoformat() + "Z"),
+        "deployed_at": deployed_at,
         "uptime_seconds": uptime_seconds,
         "checks": checks,
         "database": {"connected": db_connected, "branch": db_branch, "latency_ms": db_latency_ms, "revision": alembic_rev},
