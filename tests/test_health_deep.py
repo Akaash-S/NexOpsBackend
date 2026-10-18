@@ -379,8 +379,7 @@ async def test_events_alerts_date_query_exact_service_shape():
     from app.models.event import Event
     from app.models.alert import Alert
 
-    now_utc = datetime.now(timezone.utc)
-    seven_days_ago = now_utc - timedelta(days=7)
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
 
     async with async_session() as session:
         # 1. Event count query matching analytics service

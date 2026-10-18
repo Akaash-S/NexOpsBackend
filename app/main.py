@@ -399,7 +399,7 @@ async def health_check_detailed(
     events_count = 0
     events_latency_ms = 0.0
     try:
-        seven_days_ago = now_utc - timedelta(days=7)
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
             stmt = select(func.count(Event.id)).where(Event.created_at >= seven_days_ago)
@@ -416,7 +416,7 @@ async def health_check_detailed(
     alerts_count = 0
     alerts_latency_ms = 0.0
     try:
-        seven_days_ago = now_utc - timedelta(days=7)
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
             stmt = select(func.count(Alert.id)).where(Alert.created_at >= seven_days_ago)
