@@ -3,7 +3,6 @@ Sentry Error Monitoring Integration for NexOps Backend & Worker.
 
 Privacy compliance:
 - send_default_pii=False
-<<<<<<< HEAD
 - include_local_variables=False (SDK 2.x default is True; explicitly set False to prevent local variable values in stack frames)
 - max_request_body_size="never"
 - before_send hook strips:
@@ -16,14 +15,6 @@ Privacy compliance:
   - Runtime secret values (HEALTH_CHECK_SECRET, SENTRY_DSN, ENCRYPTION_KEY, *_WEBHOOK_SECRET)
   - Exception messages and SQLAlchemy DBAPIError / StatementError parameters and statements.
 - before_breadcrumb hook scrubs all breadcrumbs (including LoggingIntegration) before storage.
-=======
-- before_send hook strips:
-  - Authorization, Cookie, Set-Cookie, and all X-* secret headers
-  - Request bodies (never send webhook payloads or user data)
-  - Query strings containing tokens/passwords/keys
-  - User emails and IP addresses
-  - Regex redacts database URLs, Fernet tokens, JWTs, Bearer tokens, and email addresses.
->>>>>>> origin/main
 - Minimal sample rates (traces_sample_rate=0.0). No profiling, no replay.
 """
 
@@ -31,7 +22,6 @@ import os
 import re
 import logging
 import subprocess
-<<<<<<< HEAD
 from typing import Any, Dict, List, Optional
 import sentry_sdk
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -106,33 +96,6 @@ def scrub_value(val: Any) -> Any:
         val = TOKEN_KEY_VALUE_REGEX.sub(r"\1=[REDACTED_TOKEN]", val)
         return val
 
-=======
-from typing import Any, Dict, Optional
-import sentry_sdk
-
-logger = logging.getLogger("nexops.sentry")
-
-# Patterns for sensitive tokens, emails, DB URLs
-EMAIL_REGEX = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
-DB_URL_REGEX = re.compile(r'(postgres(ql)?(\+[a-zA-Z0-9_]+)?|redis(s)?|mysql|sqlite)://[^\s\'"<>]+')
-BEARER_REGEX = re.compile(r'(?i)bearer\s+[A-Za-z0-9_\-\.]+')
-FERNET_REGEX = re.compile(r'gAAAAAB[A-Za-z0-9_\-]{50,}')
-JWT_REGEX = re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}')
-TOKEN_KEY_VALUE_REGEX = re.compile(r'(?i)\b(token|key|secret|password|api_key|auth)[=:\s]+(["\']?)([A-Za-z0-9_\-\.]+)\2')
-GENERIC_SECRET_KEY_REGEX = re.compile(r'(?i)(secret|token|password|api_key|auth|credential|access_token|private_key|webhook_secret|encryption_key)')
-
-
-def scrub_value(val: Any) -> Any:
-    """Recursively scrub values within dictionaries, lists, and strings."""
-    if isinstance(val, str):
-        val = EMAIL_REGEX.sub("[REDACTED_EMAIL]", val)
-        val = DB_URL_REGEX.sub("[REDACTED_DB_URL]", val)
-        val = BEARER_REGEX.sub("Bearer [REDACTED_TOKEN]", val)
-        val = FERNET_REGEX.sub("[REDACTED_FERNET_TOKEN]", val)
-        val = JWT_REGEX.sub("[REDACTED_JWT]", val)
-        val = TOKEN_KEY_VALUE_REGEX.sub(r"\1=[REDACTED_TOKEN]", val)
-        return val
->>>>>>> origin/main
     elif isinstance(val, dict):
         scrubbed = {}
         for k, v in val.items():
@@ -146,7 +109,6 @@ def scrub_value(val: Any) -> Any:
             else:
                 scrubbed[k] = scrub_value(v)
         return scrubbed
-<<<<<<< HEAD
 
     elif isinstance(val, (list, tuple)):
         scrubbed_seq = [scrub_value(item) for item in val]
@@ -166,13 +128,6 @@ def before_breadcrumb_handler(crumb: Dict[str, Any], hint: Dict[str, Any]) -> Op
     return scrub_value(crumb)
 
 
-=======
-    elif isinstance(val, list):
-        return [scrub_value(item) for item in val]
-    return val
-
-
->>>>>>> origin/main
 def before_send_handler(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Sentry before_send privacy hook.
@@ -180,14 +135,9 @@ def before_send_handler(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional
     - Strips Authorization, Cookie, Set-Cookie, and all X-* secret headers
     - Strips request bodies completely (never send webhook payloads or user data)
     - Strips tokens and sensitive params from query strings
-<<<<<<< HEAD
     - Strips user email, IP address, and username
     - Recursively scrubs tokens, passwords, database URLs, and emails across breadcrumbs, exceptions, and extra context.
     - Strips SQLAlchemy DBAPIError/StatementError parameters and statements.
-=======
-    - Strips user email and IP address
-    - Recursively scrubs tokens, passwords, database URLs, and emails across breadcrumbs, exceptions, and extra context.
->>>>>>> origin/main
     """
     if not event:
         return event
@@ -230,11 +180,7 @@ def before_send_handler(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional
             elif isinstance(query_string, dict):
                 request["query_string"] = scrub_value(query_string)
 
-<<<<<<< HEAD
     # 2. Scrub user info (strictly no email, no IP, no username)
-=======
-    # 2. Scrub user info (strictly no email, no IP)
->>>>>>> origin/main
     user = event.get("user")
     if isinstance(user, dict):
         user.pop("email", None)
@@ -258,7 +204,6 @@ def before_send_handler(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional
     if "tags" in event and isinstance(event["tags"], dict):
         event["tags"] = scrub_value(event["tags"])
 
-<<<<<<< HEAD
     # 5. Scrub exception values and SQLAlchemy DBAPIError parameters
     exc_info = hint.get("exc_info")
     if exc_info:
@@ -288,12 +233,6 @@ def before_send_handler(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional
                             frame["vars"] = scrub_value(frame["vars"])
                 if "mechanism" in item and isinstance(item["mechanism"], dict):
                     item["mechanism"] = scrub_value(item["mechanism"])
-=======
-    # 5. Scrub exception values
-    exception = event.get("exception")
-    if isinstance(exception, dict):
-        event["exception"] = scrub_value(exception)
->>>>>>> origin/main
 
     return event
 
@@ -326,7 +265,6 @@ def init_sentry(service_name: str = "nexops-api") -> bool:
     environment = getattr(settings, "APP_ENV", None) or os.environ.get("APP_ENV", "local")
     release = get_git_commit_sha()
 
-<<<<<<< HEAD
     # Logging integration configured so breadcrumbs and log events cannot leak secrets
     logging_integration = LoggingIntegration(
         level=logging.INFO,
@@ -334,9 +272,6 @@ def init_sentry(service_name: str = "nexops-api") -> bool:
     )
     integrations = [logging_integration]
 
-=======
-    integrations = []
->>>>>>> origin/main
     if service_name == "nexops-api":
         from sentry_sdk.integrations.fastapi import FastApiIntegration
         from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -351,14 +286,10 @@ def init_sentry(service_name: str = "nexops-api") -> bool:
         environment=environment,
         release=release,
         send_default_pii=False,
-<<<<<<< HEAD
         include_local_variables=False,
         max_request_body_size="never",
         before_send=before_send_handler,
         before_breadcrumb=before_breadcrumb_handler,
-=======
-        before_send=before_send_handler,
->>>>>>> origin/main
         traces_sample_rate=0.0,
         profiles_sample_rate=0.0,
     )

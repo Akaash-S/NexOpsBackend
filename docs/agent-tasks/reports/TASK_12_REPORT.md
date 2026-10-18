@@ -144,11 +144,7 @@ The endpoint runs the following read-only checks:
 
 ### 4.1 Script Location & Capabilities
 Implemented in `scripts/post_deploy_smoke.py` (with companion `scripts/post_deploy_smoke.sh`):
-<<<<<<< HEAD
 - Accepts `--base-url` (or `$BASE_URL`). Reads `$HEALTH_CHECK_SECRET` strictly from environment.
-=======
-- Accepts `--base-url` (or `$BASE_URL`) and `--secret` (or `$HEALTH_CHECK_SECRET`).
->>>>>>> origin/main
 - Calls public `/health` and protected `/health/detailed`.
 - Prints diagnostic results and formatted table.
 - Exits with return code 0 on complete pass, or return code 1 on any failure.
@@ -157,11 +153,7 @@ Implemented in `scripts/post_deploy_smoke.py` (with companion `scripts/post_depl
 **Option A: Against Remote Production / Staging Deployment:**
 ```bash
 export HEALTH_CHECK_SECRET="<secret-from-render-env>"
-<<<<<<< HEAD
 export BASE_URL="https://nexops-server.asolvitra.tech"
-=======
-export BASE_URL="https://api.nexops.asolvitra.tech"
->>>>>>> origin/main
 python scripts/post_deploy_smoke.py
 ```
 
@@ -183,12 +175,8 @@ Before executing queries, local endpoints were verified:
 
 ### 5.2 Smoke Script Execution — Passing Case
 ```
-<<<<<<< HEAD
 > export HEALTH_CHECK_SECRET="smoke-secret-proof-123"
 > python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000
-=======
-> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000 --secret smoke-secret-proof-123
->>>>>>> origin/main
 ======================================================================
  NexOps Post-Deploy Smoke Check
  Target Base URL: http://127.0.0.1:8000
@@ -219,12 +207,8 @@ Exit code: `0`.
 ### 5.3 Smoke Script Execution — Forced Failure (Redis Port Broken)
 Server started with `REDIS_URL="redis://localhost:6389"`:
 ```
-<<<<<<< HEAD
 > export HEALTH_CHECK_SECRET="smoke-secret-proof-123"
 > python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000
-=======
-> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000 --secret smoke-secret-proof-123
->>>>>>> origin/main
 ======================================================================
  NexOps Post-Deploy Smoke Check
  Target Base URL: http://127.0.0.1:8000
@@ -309,7 +293,6 @@ tests/test_health_deep.py::test_protected_health_detailed_forced_failure_and_res
 - `tests/test_sentry.py`: Added tests for Sentry scrubber, transport capturing, disabled DSN, and negative proof.
 - `tests/test_health_deep.py`: Added tests for protected health check, passing case, forced failure, and residue check.
 - `docs/agent-tasks/reports/TASK_12_REPORT.md`: This comprehensive report.
-<<<<<<< HEAD
 
 ---
 
@@ -517,5 +500,3 @@ Added `capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "
 - When an error recurs after 15 minutes, Sentry captures the exception with `rate_limit_suppressed_occurrences` attached in scope extra context.
 - **Control Flow**: 100% unchanged. Worker logging (`logger.error`, `logger.warning`), message retry, and dead-letter queue routing operate identically.
 
-=======
->>>>>>> origin/main

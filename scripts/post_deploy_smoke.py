@@ -3,40 +3,21 @@
 NexOps Post-Deploy Health & Smoke Verification Script.
 
 Usage:
-<<<<<<< HEAD
   export BASE_URL="https://nexops-server.asolvitra.tech"  # or http://localhost:8000
   export HEALTH_CHECK_SECRET="your-secret-here"
   python scripts/post_deploy_smoke.py
 
-=======
-  # Via environment variables:
-  export HEALTH_CHECK_SECRET="your-secret-here"
-  export BASE_URL="https://api.nexops.asolvitra.tech"  # or http://localhost:8000
-  python scripts/post_deploy_smoke.py
-
-  # Or via CLI arguments:
-  python scripts/post_deploy_smoke.py --base-url http://localhost:8000 --secret "your-secret-here"
-
->>>>>>> origin/main
 Verifies:
   1. Public /health returns HTTP 200 and status == "operational"
   2. Protected /health/detailed authenticated via HEALTH_CHECK_SECRET returns HTTP 200
   3. Diagnostic queries succeed:
      - database_connection
-<<<<<<< HEAD
      - database_events_query (created_at >= now-7d)
      - database_alerts_query (created_at >= now-7d)
      - database_alembic_revision
      - redis_ping
      - package_versions (compares installed versions against pinned requirements.txt)
   4. Prints installed versions and exits non-zero on any check failure or version mismatch.
-=======
-     - database_events_query (timezone-aware created_at >= now-7d)
-     - database_alerts_query (timezone-aware created_at >= now-7d)
-     - database_alembic_revision
-     - redis_ping
-  4. Exits with code 0 on all PASS, or code 1 on any FAIL.
->>>>>>> origin/main
 """
 
 import os
@@ -47,22 +28,14 @@ import urllib.error
 import json
 import time
 
-<<<<<<< HEAD
 
 def run_smoke_check(base_url: str) -> bool:
     secret = os.getenv("HEALTH_CHECK_SECRET", "").strip()
-=======
-def run_smoke_check(base_url: str, secret: str) -> bool:
->>>>>>> origin/main
     base_url = base_url.rstrip("/")
     print("=" * 70)
     print(" NexOps Post-Deploy Smoke Check")
     print(f" Target Base URL: {base_url}")
-<<<<<<< HEAD
     print(f" HEALTH_CHECK_SECRET: {'Configured in environment' if secret else 'NOT SET in environment (Warning: detailed check will fail 401)'}")
-=======
-    print(f" Secret Configured: {'Yes' if secret else 'No (Warning: detailed check may fail 401)'}")
->>>>>>> origin/main
     print("=" * 70)
 
     all_passed = True
@@ -130,7 +103,6 @@ def run_smoke_check(base_url: str, secret: str) -> bool:
     else:
         print(f"  --> HTTP {detailed_code} in {elapsed}ms | Top-level status: '{detailed_data.get('status')}'")
 
-<<<<<<< HEAD
     # 3. Print Installed Package Versions & Check for Mismatches
     pkg_check = detailed_data.get("checks", {}).get("package_versions", {})
     installed_versions = detailed_data.get("package_versions") or pkg_check.get("installed", {})
@@ -151,9 +123,6 @@ def run_smoke_check(base_url: str, secret: str) -> bool:
         all_passed = False
 
     # 4. Inspect individual diagnostic checks
-=======
-    # Inspect individual diagnostic checks
->>>>>>> origin/main
     checks = detailed_data.get("checks", {})
     if not checks:
         print("  --> WARNING: No 'checks' object found in response.")
@@ -175,11 +144,8 @@ def run_smoke_check(base_url: str, secret: str) -> bool:
                 details.append(f"rev={info['revision']}")
             if "error" in info and info["error"]:
                 details.append(f"error: {info['error']}")
-<<<<<<< HEAD
             if "mismatches" in info and info["mismatches"]:
                 details.append(f"mismatches: {info['mismatches']}")
-=======
->>>>>>> origin/main
 
             detail_str = ", ".join(details)
             print(f"  {check_name:<30} | {c_status:<6} | {detail_str}")
@@ -193,7 +159,6 @@ def run_smoke_check(base_url: str, secret: str) -> bool:
         print("=" * 70)
         return True
     else:
-<<<<<<< HEAD
         print(" [DEPLOYMENT SMOKE CHECK FAILED] One or more health checks or version checks failed!")
         print("=" * 70)
         return False
@@ -212,20 +177,5 @@ def main():
     sys.exit(0 if success else 1)
 
 
-=======
-        print(" [DEPLOYMENT SMOKE CHECK FAILED] One or more health checks failed!")
-        print("=" * 70)
-        return False
-
-def main():
-    parser = argparse.ArgumentParser(description="NexOps Post-Deploy Smoke Verification")
-    parser.add_argument("--base-url", default=os.getenv("BASE_URL", "http://localhost:8000"), help="Base URL of NexOps API")
-    parser.add_argument("--secret", default=os.getenv("HEALTH_CHECK_SECRET", ""), help="HEALTH_CHECK_SECRET")
-    args = parser.parse_args()
-
-    success = run_smoke_check(args.base_url, args.secret)
-    sys.exit(0 if success else 1)
-
->>>>>>> origin/main
 if __name__ == "__main__":
     main()
