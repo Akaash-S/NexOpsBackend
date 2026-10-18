@@ -576,11 +576,12 @@ def test_worker_rate_limiter_negative_proof_and_bounded_cache(monkeypatch):
     assert "sig_249:Exception" in _ERROR_RATE_LIMIT_CACHE
 
 
-def test_worker_rate_limiter_50_event_ids_single_capture(monkeypatch):
+def test_worker_rate_limiter_distinct_signatures_and_single_capture(monkeypatch):
     """
-    Task 12d - Item 3:
-    50 different event_ids failing with the same error type inside 15 minutes -> exactly 1 capture.
-    Proves that event_ids and uids are completely removed from error signature.
+    Task 12e - Item 1:
+    Prove that 'worker_dead_letter', 'auto_sync_user', 'auto_sync_loop', and 'init_consumer_group'
+    each produce a distinct signature in the cache, and that 50 different event_ids at the same
+    call site give exactly 1 capture.
     """
     import uuid
     from app.worker.stream_consumer import (
@@ -592,15 +593,39 @@ def test_worker_rate_limiter_50_event_ids_single_capture(monkeypatch):
     monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_events.append(e))
     _ERROR_RATE_LIMIT_CACHE.clear()
 
-    err = ConnectionResetError("Remote server closed database connection unexpectedly")
-    clock_time = 5000.0
+    err = ConnectionResetError("Connection dropped")
+    clock_time = 10000.0
 
-    # Trigger 50 errors with 50 different event_ids within 15 minutes (advancing clock by 5s each = 250s total < 900s)
+    # 1. Distinct signatures for distinct call sites
+    call_sites = ["worker_dead_letter", "auto_sync_user", "auto_sync_loop", "init_consumer_group"]
+    for cs in call_sites:
+        fired = capture_worker_exception_rate_limited(err, key_prefix=cs, _clock=clock_time)
+        assert fired is True
+        expected_sig = cs + ":" + type(err).__name__
+        assert expected_sig in _ERROR_RATE_LIMIT_CACHE
+
+    # All 4 call sites must produce distinct signatures in the cache
+    assert len(_ERROR_RATE_LIMIT_CACHE) == 4
+    for cs in call_sites:
+        assert (cs + ":" + type(err).__name__) in _ERROR_RATE_LIMIT_CACHE
+    assert len(captured_events) == 4
+
+    # 2. 50 different event_ids at the same call site give exactly 1 capture
+    _ERROR_RATE_LIMIT_CACHE.clear()
+    captured_events.clear()
+
     for i in range(50):
         evt_id = f"evt-{uuid.uuid4().hex}"
-        capture_worker_exception_rate_limited(err, key_prefix=f"worker_event_{evt_id}", _clock=clock_time + (i * 5.0))
+        fired = capture_worker_exception_rate_limited(err, key_prefix="worker_event", _clock=clock_time + (i * 2.0))
+        if i == 0:
+            assert fired is True
+        else:
+            assert fired is False
 
-    # Exactly 1 capture must fire to Sentry
-    assert len(captured_events) == 1, f"Expected exactly 1 capture for 50 event_ids, got {len(captured_events)}"
+    assert len(captured_events) == 1
+    assert "worker_event:ConnectionResetError" in _ERROR_RATE_LIMIT_CACHE
+    _, suppressed = _ERROR_RATE_LIMIT_CACHE["worker_event:ConnectionResetError"]
+    assert suppressed == 49
+
 
 

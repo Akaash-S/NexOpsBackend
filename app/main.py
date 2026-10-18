@@ -489,7 +489,7 @@ async def health_check_detailed(
         async with httpx.AsyncClient(timeout=3.0) as client:
             try:
                 t0 = time.perf_counter()
-                r = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"})
+                r = await client.get("https://api.github.com/zen", headers={"User-Agent": "NexOps-HealthCheck"}, timeout=3.0)
                 if r.status_code in (200, 403):
                     gh_reachable = True
                     gh_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -497,7 +497,7 @@ async def health_check_detailed(
                 pass
             try:
                 t0 = time.perf_counter()
-                r = await client.get("https://api.pagerduty.com/", headers={"User-Agent": "NexOps-HealthCheck"}, follow_redirects=True)
+                r = await client.get("https://api.pagerduty.com/", headers={"User-Agent": "NexOps-HealthCheck"}, follow_redirects=True, timeout=3.0)
                 if r.status_code in (200, 401):
                     pd_reachable = True
                     pd_latency_ms = round((time.perf_counter() - t0) * 1000, 2)

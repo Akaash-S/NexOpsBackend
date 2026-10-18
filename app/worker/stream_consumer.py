@@ -53,14 +53,11 @@ def capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "", 
     Rate-cap and deduplicate worker exceptions sent to Sentry.
     Prevents repeated failures in worker loops (e.g. 60s auto-sync failing repeatedly)
     from exhausting the Sentry quota. Bounded to max 200 unique signatures (LRU order).
-    Error signature is strictly call site + exception class (event_ids and uids removed).
+    Error signature is strictly static call site + exception class.
     Returns True if exception was sent to Sentry, False if deduplicated/suppressed.
     """
     now = _clock() if callable(_clock) else (float(_clock) if _clock is not None else time.time())
-    # Normalize key_prefix to static call site (strip trailing event/user IDs)
-    import re
-    call_site = re.sub(r'_(?:[0-9a-fA-F-]{4,}|[a-zA-Z0-9_\-]{8,})$', '', key_prefix) if key_prefix else "worker"
-    err_sig = f"{call_site}:{type(err).__name__}"
+    err_sig = key_prefix + ":" + type(err).__name__
 
     suppressed = 0
     if err_sig in _ERROR_RATE_LIMIT_CACHE:
