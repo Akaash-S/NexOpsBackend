@@ -103,7 +103,11 @@ async def init_consumer_group():
             logger.info(f"Consumer group {GROUP_NAME} already exists.")
         else:
             logger.error(f"Failed to create consumer group: {e}")
+<<<<<<< HEAD
             capture_worker_exception_rate_limited(e, key_prefix="init_consumer_group")
+=======
+            sentry_sdk.capture_exception(e)
+>>>>>>> origin/main
             return False
     return True
 
@@ -150,8 +154,13 @@ async def handle_message(msg_id: str, fields: dict):
 
     except Exception as err:
         logger.error(f"Error processing event {event_id}: {err}", exc_info=True)
+<<<<<<< HEAD
         capture_worker_exception_rate_limited(err, key_prefix=f"worker_event_{event_id}")
 
+=======
+        sentry_sdk.capture_exception(err)
+        
+>>>>>>> origin/main
         # 5. Retry/Dead-letter logic
         next_retry = retry_count + 1
         if next_retry >= MAX_RETRIES:
@@ -173,7 +182,11 @@ async def handle_message(msg_id: str, fields: dict):
                 logger.info(f"Event {event_id} successfully dead-lettered.")
             except Exception as dl_err:
                 logger.critical(f"Failed to dead-letter event {event_id}: {dl_err}")
+<<<<<<< HEAD
                 capture_worker_exception_rate_limited(dl_err, key_prefix=f"worker_dead_letter_{event_id}")
+=======
+                sentry_sdk.capture_exception(dl_err)
+>>>>>>> origin/main
         else:
             logger.info(f"Re-queueing event {event_id} for retry {next_retry}")
             try:
@@ -190,7 +203,11 @@ async def handle_message(msg_id: str, fields: dict):
                 await redis_client.xack(STREAM_NAME, GROUP_NAME, msg_id)
             except Exception as rq_err:
                 logger.critical(f"Failed to re-queue event {event_id}: {rq_err}")
+<<<<<<< HEAD
                 capture_worker_exception_rate_limited(rq_err, key_prefix=f"worker_requeue_{event_id}")
+=======
+                sentry_sdk.capture_exception(rq_err)
+>>>>>>> origin/main
 
 async def github_auto_sync_loop():
     """Periodic background task that automatically syncs GitHub repositories, deployments, and prunes deleted repos across active connected workspaces."""
@@ -229,11 +246,19 @@ async def github_auto_sync_loop():
                         logger.info(f"Background GitHub auto-sync completed for user {db_user.id} (workspace {db_user.workspace_id})")
                 except Exception as sync_err:
                     logger.warning(f"Background auto-sync failed for user {uid}: {sync_err}")
+<<<<<<< HEAD
                     capture_worker_exception_rate_limited(sync_err, key_prefix=f"auto_sync_user_{uid}")
         except Exception as e:
             logger.error(f"Error in GitHub background auto-sync loop: {e}")
             capture_worker_exception_rate_limited(e, key_prefix="auto_sync_loop")
 
+=======
+                    sentry_sdk.capture_exception(sync_err)
+        except Exception as e:
+            logger.error(f"Error in GitHub background auto-sync loop: {e}")
+            sentry_sdk.capture_exception(e)
+        
+>>>>>>> origin/main
         await asyncio.sleep(60)
 
 from datetime import datetime, timezone
@@ -305,7 +330,11 @@ async def run_consumer(stop_event: asyncio.Event):
                     await init_consumer_group()
                 else:
                     logger.error(f"Error in consumer loop: {e}")
+<<<<<<< HEAD
                     capture_worker_exception_rate_limited(e, key_prefix="consumer_loop")
+=======
+                    sentry_sdk.capture_exception(e)
+>>>>>>> origin/main
                 await asyncio.sleep(2)  # Cool down on unexpected errors
     finally:
         logger.info("Cancelling background tasks...")

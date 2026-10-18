@@ -15,7 +15,10 @@ if sys.platform == "win32":
 import logging
 from contextlib import asynccontextmanager
 import secrets
+<<<<<<< HEAD
 import hmac
+=======
+>>>>>>> origin/main
 from fastapi import FastAPI, Depends, Request, Response, status, HTTPException
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.middleware.cors import CORSMiddleware
@@ -303,6 +306,7 @@ async def health_check():
 
 async def verify_health_check_access(
     request: Request,
+<<<<<<< HEAD
 ):
     """
     Verify caller has permission to view detailed system health diagnostics.
@@ -331,6 +335,41 @@ async def verify_health_check_access(
 
     if provided and hmac.compare_digest(provided, secret):
         return "health_secret_authorized"
+=======
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Verify caller has permission to view detailed system health diagnostics.
+    Permits access via:
+    1. HEALTH_CHECK_SECRET (X-Health-Check-Secret header or Bearer token) for post-deploy smoke runners
+    2. Valid Firebase ID token for authenticated admin users
+    """
+    secret = settings.HEALTH_CHECK_SECRET
+    if secret:
+        header_secret = request.headers.get("X-Health-Check-Secret")
+        if header_secret and secrets.compare_digest(header_secret, secret):
+            return "health_secret_authorized"
+
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            scheme, param = get_authorization_scheme_param(auth_header)
+            if scheme.lower() == "bearer" and secrets.compare_digest(param, secret):
+                return "health_secret_authorized"
+
+    # Fallback to Firebase authentication
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        scheme, param = get_authorization_scheme_param(auth_header)
+        if scheme.lower() == "bearer" and param:
+            from fastapi.security import HTTPAuthorizationCredentials
+            credentials = HTTPAuthorizationCredentials(scheme=scheme, credentials=param)
+            try:
+                user = await get_current_user(credentials=credentials, session=session)
+                if user:
+                    return user
+            except Exception:
+                pass
+>>>>>>> origin/main
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -367,7 +406,12 @@ async def health_check_detailed(
     from app.models.alert import Alert
 
     now_utc = datetime.now(timezone.utc)
+<<<<<<< HEAD
     uptime_seconds = round((now_utc - START_TIME).total_seconds(), 2)
+=======
+    now_naive = datetime.utcnow()
+    uptime_seconds = round((now_naive - START_TIME).total_seconds(), 2)
+>>>>>>> origin/main
 
     checks = {}
     all_passed = True
@@ -395,14 +439,24 @@ async def health_check_detailed(
         checks["database_connection"] = {"status": "fail", "latency_ms": db_latency_ms, "error": str(e)}
         all_passed = False
 
+<<<<<<< HEAD
     # 2. Events Query (reuse exact real service query pattern without type_coerce)
+=======
+    # 2. Events Query (timezone-aware comparison on created_at >= now-7d)
+>>>>>>> origin/main
     events_count = 0
     events_latency_ms = 0.0
     try:
         seven_days_ago = now_utc - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
+<<<<<<< HEAD
             stmt = select(func.count(Event.id)).where(Event.created_at >= seven_days_ago)
+=======
+            stmt = select(func.count(Event.id)).where(
+                type_coerce(Event.created_at, DateTime(timezone=True)) >= seven_days_ago
+            )
+>>>>>>> origin/main
             res = await session.execute(stmt)
             events_count = res.scalar() or 0
         events_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -412,14 +466,24 @@ async def health_check_detailed(
         checks["database_events_query"] = {"status": "fail", "latency_ms": events_latency_ms, "error": str(e)}
         all_passed = False
 
+<<<<<<< HEAD
     # 3. Alerts Query (reuse exact real service query pattern without type_coerce)
+=======
+    # 3. Alerts Query (timezone-aware comparison on created_at >= now-7d)
+>>>>>>> origin/main
     alerts_count = 0
     alerts_latency_ms = 0.0
     try:
         seven_days_ago = now_utc - timedelta(days=7)
         t0 = time.perf_counter()
         async with async_session() as session:
+<<<<<<< HEAD
             stmt = select(func.count(Alert.id)).where(Alert.created_at >= seven_days_ago)
+=======
+            stmt = select(func.count(Alert.id)).where(
+                type_coerce(Alert.created_at, DateTime(timezone=True)) >= seven_days_ago
+            )
+>>>>>>> origin/main
             res = await session.execute(stmt)
             alerts_count = res.scalar() or 0
         alerts_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -500,6 +564,7 @@ async def health_check_detailed(
     except Exception as e:
         logger.warning(f"Health/detailed HTTP error: {e}")
 
+<<<<<<< HEAD
     # 6. Package Versions Check (installed vs pinned requirements.txt)
     package_versions = {}
     expected_versions = {}
@@ -549,6 +614,8 @@ async def health_check_detailed(
     if version_mismatches:
         all_passed = False
 
+=======
+>>>>>>> origin/main
     overall_status = "pass" if all_passed else "fail"
     if not all_passed:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

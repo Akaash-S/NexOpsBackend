@@ -5,7 +5,10 @@ file without hardcoding credentials in test files.
 """
 
 import os
+<<<<<<< HEAD
 import json
+=======
+>>>>>>> origin/main
 import pytest
 import sentry_sdk
 from sentry_sdk.transport import _FunctionTransport
@@ -301,6 +304,7 @@ def test_negative_proof_disabled_sentry_does_not_capture():
     # Proves positive restored case
     assert len(captured) == 1
     assert "Restored crash" in captured[0].get("exception", {}).get("values", [{}])[0].get("value", "")
+<<<<<<< HEAD
 
 
 def test_capturing_transport_frame_locals_and_tokens_scrubbed_from_json():
@@ -576,3 +580,5 @@ def test_worker_rate_limiter_negative_proof_and_bounded_cache(monkeypatch):
     assert "sig_249:Exception:Unique failure code #249" in _ERROR_RATE_LIMIT_CACHE
 
 
+=======
+>>>>>>> origin/main

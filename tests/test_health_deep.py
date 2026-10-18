@@ -74,6 +74,7 @@ async def test_public_health_remains_minimal_and_unleaked(async_client):
 
 
 @pytest.mark.asyncio
+<<<<<<< HEAD
 async def test_protected_health_detailed_requires_auth(async_client, monkeypatch, caplog):
     """
     Task 12c - Item C.4:
@@ -145,6 +146,26 @@ async def test_protected_health_detailed_requires_auth(async_client, monkeypatch
 
         # 6. Never log the secret
         assert configured_secret not in caplog.text
+=======
+async def test_protected_health_detailed_requires_auth(async_client, monkeypatch):
+    """
+    Requirement 7:
+    Protected deep check must reject unauthenticated requests or invalid secrets with 401.
+    """
+    monkeypatch.setattr(settings, "HEALTH_CHECK_SECRET", "smoke-test-secret-123")
+
+    async with async_client as client:
+        # 1. No auth provided -> 401
+        resp = await client.get("/health/detailed")
+        assert resp.status_code == 401
+
+        # 2. Invalid secret provided -> 401
+        resp = await client.get(
+            "/health/detailed",
+            headers={"X-Health-Check-Secret": "wrong-secret-value"}
+        )
+        assert resp.status_code == 401
+>>>>>>> origin/main
 
 
 @pytest.mark.asyncio
@@ -167,6 +188,7 @@ async def test_protected_health_detailed_passing_case_and_residue_check(async_cl
         events_before = (await s.execute(text("SELECT count(*) FROM events"))).scalar()
         alerts_before = (await s.execute(text("SELECT count(*) FROM alerts"))).scalar()
 
+<<<<<<< HEAD
     # Mock importlib.metadata.version to match pinned requirements.txt for the passing case
     import importlib.metadata
     orig_version = importlib.metadata.version
@@ -179,6 +201,8 @@ async def test_protected_health_detailed_passing_case_and_residue_check(async_cl
     }
     monkeypatch.setattr(importlib.metadata, "version", lambda pkg: pinned_defaults.get(pkg, orig_version(pkg)))
 
+=======
+>>>>>>> origin/main
     # 2. Call protected deep check with valid secret
     async with async_client as client:
         resp = await client.get(
@@ -189,7 +213,10 @@ async def test_protected_health_detailed_passing_case_and_residue_check(async_cl
         data = resp.json()
 
         assert data.get("status") == "pass"
+<<<<<<< HEAD
         assert "package_versions" in data
+=======
+>>>>>>> origin/main
         checks = data.get("checks", {})
 
         # Individual check assertions
@@ -198,7 +225,10 @@ async def test_protected_health_detailed_passing_case_and_residue_check(async_cl
         assert checks.get("database_alerts_query", {}).get("status") == "pass"
         assert checks.get("database_alembic_revision", {}).get("status") == "pass"
         assert checks.get("redis_ping", {}).get("status") == "pass"
+<<<<<<< HEAD
         assert checks.get("package_versions", {}).get("status") == "pass"
+=======
+>>>>>>> origin/main
 
         # Alembic revision present
         rev = checks.get("database_alembic_revision", {}).get("revision")
@@ -263,6 +293,7 @@ async def test_protected_health_detailed_forced_failure_and_residue_check(async_
 
     assert events_before == events_after
     assert alerts_before == alerts_after
+<<<<<<< HEAD
 
 
 @pytest.mark.asyncio
@@ -431,3 +462,5 @@ def test_startup_redis_banner_masks_credentials(caplog):
 
 
 
+=======
+>>>>>>> origin/main
