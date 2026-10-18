@@ -15,6 +15,7 @@ if sys.platform == "win32":
 import logging
 from contextlib import asynccontextmanager
 import secrets
+import hmac
 from fastapi import FastAPI, Depends, Request, Response, status, HTTPException
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,23 @@ def mask_database_url(url_str: str) -> str:
         return f"{driver}://[MASKED]/{dbname}"
 
 
+def mask_redis_url(url_str: str) -> str:
+    """
+    Mask credentials, host, and port in Redis connection URL.
+    Returns scheme and database index only (e.g. 'redis://[MASKED]/0').
+    """
+    if not url_str:
+        return "[EMPTY]"
+    try:
+        from urllib.parse import urlsplit
+        p = urlsplit(url_str)
+        scheme = p.scheme or "redis"
+        db = p.path.lstrip("/") or "0"
+        return f"{scheme}://[MASKED]/{db}"
+    except Exception:
+        return "redis://[MASKED]"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle events."""
@@ -68,6 +86,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"  {settings.APP_NAME} Engine Starting...")
     logger.info(f"  Environment: {settings.APP_ENV}")
     logger.info(f"  Database: {mask_database_url(settings.DATABASE_URL)}")
+    logger.info(f"  Redis: {mask_redis_url(settings.REDIS_URL)}")
     logger.info("-" * 60)
 
     # Security Guard: Refuse to start if mock authentication is enabled in production
@@ -284,39 +303,34 @@ async def health_check():
 
 async def verify_health_check_access(
     request: Request,
-    session: AsyncSession = Depends(get_session)
 ):
     """
     Verify caller has permission to view detailed system health diagnostics.
-    Permits access via:
-    1. HEALTH_CHECK_SECRET (X-Health-Check-Secret header or Bearer token) for post-deploy smoke runners
-    2. Valid Firebase ID token for authenticated admin users
+    Permits access exclusively via HEALTH_CHECK_SECRET (X-Health-Check-Secret header
+    or Authorization: Bearer <secret>). Fails closed when HEALTH_CHECK_SECRET is unset or empty.
+    Never logs the secret.
     """
-    secret = settings.HEALTH_CHECK_SECRET
-    if secret:
-        header_secret = request.headers.get("X-Health-Check-Secret")
-        if header_secret and secrets.compare_digest(header_secret, secret):
-            return "health_secret_authorized"
+    secret = (settings.HEALTH_CHECK_SECRET or "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Health check secret is not configured.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
+    provided = None
+    header_secret = request.headers.get("X-Health-Check-Secret")
+    if header_secret:
+        provided = header_secret
+    else:
         auth_header = request.headers.get("Authorization")
         if auth_header:
             scheme, param = get_authorization_scheme_param(auth_header)
-            if scheme.lower() == "bearer" and secrets.compare_digest(param, secret):
-                return "health_secret_authorized"
+            if scheme.lower() == "bearer" and param:
+                provided = param
 
-    # Fallback to Firebase authentication
-    auth_header = request.headers.get("Authorization")
-    if auth_header:
-        scheme, param = get_authorization_scheme_param(auth_header)
-        if scheme.lower() == "bearer" and param:
-            from fastapi.security import HTTPAuthorizationCredentials
-            credentials = HTTPAuthorizationCredentials(scheme=scheme, credentials=param)
-            try:
-                user = await get_current_user(credentials=credentials, session=session)
-                if user:
-                    return user
-            except Exception:
-                pass
+    if provided and hmac.compare_digest(provided, secret):
+        return "health_secret_authorized"
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

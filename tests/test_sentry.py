@@ -437,3 +437,142 @@ def test_negative_proof_local_vars_captured_when_include_local_variables_true():
     assert secret_local_token not in restored_event_json
     assert secret_local_email not in restored_event_json
 
+
+def test_worker_exception_rate_limiter_with_fake_clock(monkeypatch):
+    """
+    Task 12c - Item E.2:
+    Verify worker rate limiter with a fake clock:
+    1. Same error 5 times within 15 minutes -> exactly 1 capture
+    2. After 15 minutes -> 1 more capture carrying rate_limit_suppressed_occurrences=4
+    3. Different error -> captured immediately
+    """
+    from app.worker.stream_consumer import (
+        capture_worker_exception_rate_limited,
+        _ERROR_RATE_LIMIT_CACHE,
+    )
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    captured_events = []
+    recorded_extras = []
+
+    class MockScope:
+        def __init__(self):
+            self.extras = {}
+            self.tags = {}
+        def set_extra(self, k, v):
+            self.extras[k] = v
+        def set_tag(self, k, v):
+            self.tags[k] = v
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+
+    current_scope = MockScope()
+
+    def mock_push_scope():
+        return current_scope
+
+    def mock_capture(err):
+        captured_events.append(err)
+        recorded_extras.append(dict(current_scope.extras))
+
+    monkeypatch.setattr(sentry_sdk, "push_scope", mock_push_scope, raising=False)
+    monkeypatch.setattr(sentry_sdk, "isolation_scope", mock_push_scope, raising=False)
+    monkeypatch.setattr(sentry_sdk, "capture_exception", mock_capture)
+
+    simulated_time = 1000.0
+    err_a = ValueError("Repeated sync network timeout")
+    err_b = KeyError("Missing workspace config")
+
+    # 1. Same error 5 times inside 15 minutes (900 seconds)
+    for i in range(5):
+        sent = capture_worker_exception_rate_limited(err_a, key_prefix="test_loop", _clock=lambda: simulated_time)
+        if i == 0:
+            assert sent is True
+        else:
+            assert sent is False
+        simulated_time += 30.0  # +30s each call, total 120s < 900s
+
+    # Exactly 1 capture fired, 4 suppressed
+    assert len(captured_events) == 1
+    assert "rate_limit_suppressed_occurrences" not in recorded_extras[0]
+
+    # 2. Advance fake clock past the 15-minute window (> 900 seconds)
+    simulated_time = 1000.0 + 905.0  # 15 min 5 sec later
+    sent_after_window = capture_worker_exception_rate_limited(
+        err_a, key_prefix="test_loop", _clock=lambda: simulated_time
+    )
+    assert sent_after_window is True
+    assert len(captured_events) == 2
+    # Verify the 2nd capture carried the suppressed count
+    assert recorded_extras[1].get("rate_limit_suppressed_occurrences") == 4
+
+    # 3. Different error fires immediately
+    sent_diff = capture_worker_exception_rate_limited(
+        err_b, key_prefix="test_loop", _clock=lambda: simulated_time + 10.0
+    )
+    assert sent_diff is True
+    assert len(captured_events) == 3
+
+
+def test_worker_rate_limiter_negative_proof_and_bounded_cache(monkeypatch):
+    """
+    Task 12c - Item E.2 & E.3:
+    1. Negative proof: break the limiter (window = 0 or bypass), prove that all 5 errors fire to Sentry.
+       Then restore and prove only 1 fires.
+    2. Bounded cache: inserting > 200 unique error signatures caps memory at max 200 and evicts oldest.
+    """
+    from app.worker.stream_consumer import (
+        capture_worker_exception_rate_limited,
+        _ERROR_RATE_LIMIT_CACHE,
+        _MAX_ERROR_CACHE_ENTRIES,
+    )
+    import app.worker.stream_consumer as sc
+
+    # --- NEGATIVE PROOF: Bypassed Limiter ---
+    captured_broken = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_broken.append(e))
+
+    # Temporarily set window to 0 seconds (simulating disabled/broken limiter)
+    monkeypatch.setattr(sc, "_ERROR_RATE_LIMIT_INTERVAL_SECONDS", 0)
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    err = RuntimeError("Flapping worker connection")
+    for _ in range(5):
+        capture_worker_exception_rate_limited(err, key_prefix="broken_loop", _clock=1000.0)
+
+    # In broken/disabled state, all 5 calls fire directly
+    assert len(captured_broken) == 5, f"Expected 5 unthrottled captures, got {len(captured_broken)}"
+
+    # --- RESTORED: Limiter Enforced ---
+    captured_restored = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_restored.append(e))
+    monkeypatch.setattr(sc, "_ERROR_RATE_LIMIT_INTERVAL_SECONDS", 900)
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    for _ in range(5):
+        capture_worker_exception_rate_limited(err, key_prefix="restored_loop", _clock=1000.0)
+
+    # In restored state, only 1 fires
+    assert len(captured_restored) == 1
+
+    # --- BOUNDED CACHE VERIFICATION (Max 200 entries) ---
+    _ERROR_RATE_LIMIT_CACHE.clear()
+    assert _MAX_ERROR_CACHE_ENTRIES == 200
+
+    # Insert 250 distinct signatures
+    for idx in range(250):
+        unique_err = Exception(f"Unique failure code #{idx}")
+        capture_worker_exception_rate_limited(unique_err, key_prefix=f"sig_{idx}", _clock=1000.0 + idx)
+
+    # Must be bounded strictly at 200
+    assert len(_ERROR_RATE_LIMIT_CACHE) == 200
+    # Oldest 50 (indices 0..49) must have been evicted
+    assert "sig_0:Exception:Unique failure code #0" not in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_49:Exception:Unique failure code #49" not in _ERROR_RATE_LIMIT_CACHE
+    # Newest (indices 50..249) must be retained
+    assert "sig_50:Exception:Unique failure code #50" in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_249:Exception:Unique failure code #249" in _ERROR_RATE_LIMIT_CACHE
+
+

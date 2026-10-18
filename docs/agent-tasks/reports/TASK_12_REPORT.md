@@ -144,7 +144,7 @@ The endpoint runs the following read-only checks:
 
 ### 4.1 Script Location & Capabilities
 Implemented in `scripts/post_deploy_smoke.py` (with companion `scripts/post_deploy_smoke.sh`):
-- Accepts `--base-url` (or `$BASE_URL`) and `--secret` (or `$HEALTH_CHECK_SECRET`).
+- Accepts `--base-url` (or `$BASE_URL`). Reads `$HEALTH_CHECK_SECRET` strictly from environment.
 - Calls public `/health` and protected `/health/detailed`.
 - Prints diagnostic results and formatted table.
 - Exits with return code 0 on complete pass, or return code 1 on any failure.
@@ -153,7 +153,7 @@ Implemented in `scripts/post_deploy_smoke.py` (with companion `scripts/post_depl
 **Option A: Against Remote Production / Staging Deployment:**
 ```bash
 export HEALTH_CHECK_SECRET="<secret-from-render-env>"
-export BASE_URL="https://api.nexops.asolvitra.tech"
+export BASE_URL="https://nexops-server.asolvitra.tech"
 python scripts/post_deploy_smoke.py
 ```
 
@@ -175,7 +175,8 @@ Before executing queries, local endpoints were verified:
 
 ### 5.2 Smoke Script Execution — Passing Case
 ```
-> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000 --secret smoke-secret-proof-123
+> export HEALTH_CHECK_SECRET="smoke-secret-proof-123"
+> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000
 ======================================================================
  NexOps Post-Deploy Smoke Check
  Target Base URL: http://127.0.0.1:8000
@@ -206,7 +207,8 @@ Exit code: `0`.
 ### 5.3 Smoke Script Execution — Forced Failure (Redis Port Broken)
 Server started with `REDIS_URL="redis://localhost:6389"`:
 ```
-> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000 --secret smoke-secret-proof-123
+> export HEALTH_CHECK_SECRET="smoke-secret-proof-123"
+> python scripts/post_deploy_smoke.py --base-url http://127.0.0.1:8000
 ======================================================================
  NexOps Post-Deploy Smoke Check
  Target Base URL: http://127.0.0.1:8000

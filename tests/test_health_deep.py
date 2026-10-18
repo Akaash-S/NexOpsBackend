@@ -74,24 +74,77 @@ async def test_public_health_remains_minimal_and_unleaked(async_client):
 
 
 @pytest.mark.asyncio
-async def test_protected_health_detailed_requires_auth(async_client, monkeypatch):
+async def test_protected_health_detailed_requires_auth(async_client, monkeypatch, caplog):
     """
-    Requirement 7:
-    Protected deep check must reject unauthenticated requests or invalid secrets with 401.
+    Task 12c - Item C.4:
+    Protected deep check access control tests:
+    1. Secret unset with no header -> 401
+    2. Secret unset with empty header -> 401
+    3. Wrong secret -> 401
+    4. Correct secret -> 200
+    5. Normal Firebase user token -> 401
+    6. Never log the secret in any log level
     """
-    monkeypatch.setattr(settings, "HEALTH_CHECK_SECRET", "smoke-test-secret-123")
+    import logging
 
-    async with async_client as client:
-        # 1. No auth provided -> 401
-        resp = await client.get("/health/detailed")
-        assert resp.status_code == 401
+    # Mock versions for the 200 OK passing response
+    import importlib.metadata
+    orig_version = importlib.metadata.version
+    pinned_defaults = {
+        "fastapi": "0.115.6",
+        "sqlmodel": "0.0.22",
+        "sqlalchemy": "2.0.36",
+        "asyncpg": "0.29.0",
+        "pydantic": "2.12.5",
+    }
+    monkeypatch.setattr(importlib.metadata, "version", lambda pkg: pinned_defaults.get(pkg, orig_version(pkg)))
 
-        # 2. Invalid secret provided -> 401
-        resp = await client.get(
-            "/health/detailed",
-            headers={"X-Health-Check-Secret": "wrong-secret-value"}
-        )
-        assert resp.status_code == 401
+    with caplog.at_level(logging.DEBUG):
+        async with async_client as client:
+            # 1. Secret unset with no header -> 401
+            monkeypatch.setattr(settings, "HEALTH_CHECK_SECRET", None)
+            resp = await client.get("/health/detailed")
+            assert resp.status_code == 401
+
+            # 2. Secret unset with empty header -> 401
+            monkeypatch.setattr(settings, "HEALTH_CHECK_SECRET", "")
+            resp = await client.get("/health/detailed", headers={"X-Health-Check-Secret": ""})
+            assert resp.status_code == 401
+
+            # Now configure valid secret
+            configured_secret = "ultra-secret-smoke-token-xyz987"
+            monkeypatch.setattr(settings, "HEALTH_CHECK_SECRET", configured_secret)
+
+            # 3. Wrong secret -> 401
+            resp = await client.get(
+                "/health/detailed",
+                headers={"X-Health-Check-Secret": "invalid-wrong-secret"}
+            )
+            assert resp.status_code == 401
+
+            # 4. Correct secret -> 200
+            resp_hdr = await client.get(
+                "/health/detailed",
+                headers={"X-Health-Check-Secret": configured_secret}
+            )
+            assert resp_hdr.status_code == 200
+
+            resp_bearer = await client.get(
+                "/health/detailed",
+                headers={"Authorization": f"Bearer {configured_secret}"}
+            )
+            assert resp_bearer.status_code == 200
+
+            # 5. Normal Firebase user token without secret -> 401
+            fake_firebase_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJub3JtYWwtdXNlci0xMjMiLCJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ.signature"
+            resp_fb = await client.get(
+                "/health/detailed",
+                headers={"Authorization": f"Bearer {fake_firebase_token}"}
+            )
+            assert resp_fb.status_code == 401
+
+        # 6. Never log the secret
+        assert configured_secret not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -343,5 +396,38 @@ async def test_events_alerts_date_query_exact_service_shape():
         count_al = res_al.scalar()
         assert count_al is not None
         assert count_al >= 0
+
+
+def test_startup_redis_banner_masks_credentials(caplog):
+    """
+    Task 12c - Item D.2:
+    Prove with a test that mask_redis_url and log output for a Redis URL with
+    passwords and hosts contain neither the password nor the username/host.
+    """
+    import logging
+    from app.main import mask_redis_url
+
+    fake_password = "SecretRedisAuthToken99!"
+    fake_host = "redis-cluster-node1.prod.cache.internal"
+    fake_redis_url = f"rediss://default:{fake_password}@{fake_host}:6379/2"
+
+    masked = mask_redis_url(fake_redis_url)
+
+    # 1. Direct function assertion
+    assert fake_password not in masked
+    assert fake_host not in masked
+    assert "default" not in masked
+    assert masked == "rediss://[MASKED]/2"
+
+    # 2. Log output formatting assertion
+    with caplog.at_level(logging.INFO, logger="nexops"):
+        test_logger = logging.getLogger("nexops")
+        test_logger.info(f"  Redis: {mask_redis_url(fake_redis_url)}")
+
+    log_text = caplog.text
+    assert fake_password not in log_text
+    assert fake_host not in log_text
+    assert "rediss://[MASKED]/2" in log_text
+
 
 

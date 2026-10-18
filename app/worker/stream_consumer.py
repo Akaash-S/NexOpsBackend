@@ -40,35 +40,53 @@ CONSUMER_NAME = f"consumer-{socket.gethostname()}-{os.getpid()}"
 MAX_RETRIES = 3
 
 import time
+from collections import OrderedDict
 from typing import Dict, Tuple
 
-_ERROR_RATE_LIMIT_CACHE: Dict[str, Tuple[float, int]] = {}
+_ERROR_RATE_LIMIT_CACHE: OrderedDict[str, Tuple[float, int]] = OrderedDict()
 _ERROR_RATE_LIMIT_INTERVAL_SECONDS = 900  # 15-minute deduplication window per unique error signature
+_MAX_ERROR_CACHE_ENTRIES = 200
 
-def capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "") -> None:
+
+def capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "", _clock=None) -> bool:
     """
     Rate-cap and deduplicate worker exceptions sent to Sentry.
     Prevents repeated failures in worker loops (e.g. 60s auto-sync failing repeatedly)
-    from exhausting the Sentry quota. Control flow remains completely unchanged.
+    from exhausting the Sentry quota. Bounded to max 200 unique signatures (LRU order).
+    Returns True if exception was sent to Sentry, False if deduplicated/suppressed.
     """
-    now = time.time()
+    now = _clock() if callable(_clock) else (float(_clock) if _clock is not None else time.time())
     err_sig = f"{key_prefix}:{type(err).__name__}:{str(err)}"
 
-    last_sent, suppressed = _ERROR_RATE_LIMIT_CACHE.get(err_sig, (0.0, 0))
-    if now - last_sent < _ERROR_RATE_LIMIT_INTERVAL_SECONDS:
-        _ERROR_RATE_LIMIT_CACHE[err_sig] = (last_sent, suppressed + 1)
-        return
+    suppressed = 0
+    if err_sig in _ERROR_RATE_LIMIT_CACHE:
+        last_sent, suppressed = _ERROR_RATE_LIMIT_CACHE[err_sig]
+        if now - last_sent < _ERROR_RATE_LIMIT_INTERVAL_SECONDS:
+            _ERROR_RATE_LIMIT_CACHE[err_sig] = (last_sent, suppressed + 1)
+            _ERROR_RATE_LIMIT_CACHE.move_to_end(err_sig)
+            return False
+        # 15-minute window expired: carry over suppressed count to the new capture
+        _ERROR_RATE_LIMIT_CACHE.pop(err_sig, None)
+
+    # Evict oldest entry if cache exceeds maximum capacity
+    while len(_ERROR_RATE_LIMIT_CACHE) >= _MAX_ERROR_CACHE_ENTRIES:
+        _ERROR_RATE_LIMIT_CACHE.popitem(last=False)
 
     _ERROR_RATE_LIMIT_CACHE[err_sig] = (now, 0)
+    scope_ctx = getattr(sentry_sdk, "isolation_scope", None) or getattr(sentry_sdk, "push_scope", None)
     try:
-        with sentry_sdk.push_scope() as scope:
-            if suppressed > 0:
-                scope.set_extra("rate_limit_suppressed_occurrences", suppressed)
-            if key_prefix:
-                scope.set_tag("worker_context", key_prefix)
+        if scope_ctx:
+            with scope_ctx() as scope:
+                if suppressed > 0:
+                    scope.set_extra("rate_limit_suppressed_occurrences", suppressed)
+                if key_prefix:
+                    scope.set_tag("worker_context", key_prefix)
+                sentry_sdk.capture_exception(err)
+        else:
             sentry_sdk.capture_exception(err)
     except Exception:
         sentry_sdk.capture_exception(err)
+    return True
 
 async def init_consumer_group():
     """Create consumer group if it doesn't already exist."""
