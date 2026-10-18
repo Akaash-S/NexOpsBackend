@@ -19,7 +19,7 @@ if settings.REDIS_URL:
             socket_connect_timeout=5.0,
             health_check_interval=30,
             socket_keepalive=True,
-            max_connections=3
+            max_connections=getattr(settings, "REDIS_MAX_CONNECTIONS", 50)
         )
         logger.info("Redis client initialized.")
     except Exception as e:

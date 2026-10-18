@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     APP_ENV: str
     DEBUG: bool
     API_PREFIX: str
+    ALLOW_MOCK_AUTH: bool = False
 
     # Database
     DATABASE_URL: str
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
 
     # Redis
     REDIS_URL: str
+    REDIS_MAX_CONNECTIONS: int = 50
 
     # CORS
     CORS_ORIGINS: str

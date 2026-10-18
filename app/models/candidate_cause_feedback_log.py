@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
+from app.models.common import utc_now
 
 
 class CandidateCauseFeedbackLog(SQLModel, table=True):
@@ -28,4 +29,4 @@ class CandidateCauseFeedbackLog(SQLModel, table=True):
     score_at_time: float = Field(default=0.0)
     reasons_at_time: str = Field(max_length=1000, default="")
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

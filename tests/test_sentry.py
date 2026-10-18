@@ -5,6 +5,7 @@ file without hardcoding credentials in test files.
 """
 
 import os
+import json
 import pytest
 import sentry_sdk
 from sentry_sdk.transport import _FunctionTransport
@@ -300,3 +301,278 @@ def test_negative_proof_disabled_sentry_does_not_capture():
     # Proves positive restored case
     assert len(captured) == 1
     assert "Restored crash" in captured[0].get("exception", {}).get("values", [{}])[0].get("value", "")
+
+
+def test_capturing_transport_frame_locals_and_tokens_scrubbed_from_json():
+    """
+    Task 12b - Item 1c:
+    Force an exception in a frame whose local variables hold fake tokens of each type
+    (ghp_, gho_, ghu_, ghs_, ghr_, github_pat_, PagerDuty tokens, Firebase ID token,
+    Fernet token, runtime secrets) and a fake email; prove none appear anywhere in the
+    captured event JSON (serialize the whole event and assert absence).
+    """
+    test_dsn = _get_test_dsn()
+    captured = []
+    transport = _FunctionTransport(lambda ev: captured.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport,
+        send_default_pii=False,
+        include_local_variables=False,
+        max_request_body_size="never",
+        before_send=before_send_handler,
+        traces_sample_rate=0.0,
+    )
+
+    fake_ghp = "ghp_1234567890abcdefghijklmnopqrstuvwxyz"
+    fake_gho = "gho_abcdefghijklmnopqrstuvwxyz1234567890"
+    fake_ghu = "ghu_11223344556677889900aabbccddeeffgghh"
+    fake_ghs = "ghs_servertoken123456789012345678901234"
+    fake_ghr = "ghr_refreshtoken12345678901234567890123"
+    fake_pat = "github_pat_11AABBCCDDEEFFGGHHIIJJKKLLMMNNOOPPQQRRSSTTUUVVWWXXYYZZ"
+    fake_pd_u = "u+testpagerdutytoken123456789"
+    fake_pd_api = "pd_apikey1234567890abcdef"
+    fake_firebase = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiJmYWtlLXVpZCIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.signaturepart123456789"
+    fake_fernet = "gAAAAABfakefernettoken1234567890123456789012345678901234567890"
+    fake_email = "victim-local-var@secretcorp.internal"
+    fake_health_secret = getattr(settings, "HEALTH_CHECK_SECRET", None) or "env-health-secret"
+    fake_encryption_key = getattr(settings, "ENCRYPTION_KEY", None) or "env-encryption-key"
+
+    try:
+        # Deliberately raise exception inside this frame where all tokens are local variables
+        raise ValueError(
+            f"Failure in handler with {fake_ghp} and email {fake_email} and {fake_pd_api}"
+        )
+    except Exception as exc:
+        sentry_sdk.capture_exception(exc)
+
+    sentry_sdk.flush()
+
+    assert len(captured) >= 1
+    event = captured[0]
+
+    # Serialize whole event to JSON string
+    event_json = json.dumps(event)
+
+    # Prove none of the tokens, secrets, or PII appear anywhere in the entire event JSON
+    assert fake_ghp not in event_json
+    assert fake_gho not in event_json
+    assert fake_ghu not in event_json
+    assert fake_ghs not in event_json
+    assert fake_ghr not in event_json
+    assert fake_pat not in event_json
+    assert fake_pd_u not in event_json
+    assert fake_pd_api not in event_json
+    assert fake_firebase not in event_json
+    assert fake_fernet not in event_json
+    assert fake_email not in event_json
+    if fake_health_secret:
+        assert fake_health_secret not in event_json
+    if fake_encryption_key:
+        assert fake_encryption_key not in event_json
+
+
+def test_negative_proof_local_vars_captured_when_include_local_variables_true():
+    """
+    Task 12b - Item 1c Negative Proof:
+    When include_local_variables=True and no scrubber hook is applied,
+    prove that frame local variables and tokens DO leak into the captured event JSON.
+    Then restore include_local_variables=False and before_send, and prove they do not leak.
+    """
+    test_dsn = _get_test_dsn()
+
+    # --- NEGATIVE PHASE: include_local_variables=True, no scrubber ---
+    captured_unscrubbed = []
+    transport_unscrubbed = _FunctionTransport(lambda ev: captured_unscrubbed.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport_unscrubbed,
+        include_local_variables=True,  # Default Sentry SDK 2.x behavior
+        before_send=None,             # No scrubber hook
+    )
+
+    secret_local_token = "ghp_leakedvariable9876543210zyxwvutsrq"
+    secret_local_email = "leaked-developer@secretcompany.com"
+
+    try:
+        raise RuntimeError("Unscrubbed crash for negative verification")
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+    sentry_sdk.flush()
+
+    assert len(captured_unscrubbed) >= 1
+    unscrubbed_event_json = json.dumps(captured_unscrubbed[0])
+
+    # REAL FAILING ASSERTION IN REVERTED STATE:
+    # Proves that with include_local_variables=True and no scrubber, secrets are present in stack frames
+    assert secret_local_token in unscrubbed_event_json
+    assert secret_local_email in unscrubbed_event_json
+
+    # --- RESTORED PHASE: include_local_variables=False + before_send_handler ---
+    captured_restored = []
+    transport_restored = _FunctionTransport(lambda ev: captured_restored.append(ev))
+
+    sentry_sdk.init(
+        dsn=test_dsn,
+        transport=transport_restored,
+        include_local_variables=False,  # Enforced privacy setting
+        send_default_pii=False,
+        before_send=before_send_handler, # Scrubber restored
+    )
+
+    try:
+        raise RuntimeError(f"Restored crash with message token={secret_local_token}")
+    except Exception as e:
+        sentry_sdk.capture_exception(e)
+
+    sentry_sdk.flush()
+
+    assert len(captured_restored) >= 1
+    restored_event_json = json.dumps(captured_restored[0])
+
+    # Proves complete absence in restored state
+    assert secret_local_token not in restored_event_json
+    assert secret_local_email not in restored_event_json
+
+
+def test_worker_exception_rate_limiter_with_fake_clock(monkeypatch):
+    """
+    Task 12c - Item E.2:
+    Verify worker rate limiter with a fake clock:
+    1. Same error 5 times within 15 minutes -> exactly 1 capture
+    2. After 15 minutes -> 1 more capture carrying rate_limit_suppressed_occurrences=4
+    3. Different error -> captured immediately
+    """
+    from app.worker.stream_consumer import (
+        capture_worker_exception_rate_limited,
+        _ERROR_RATE_LIMIT_CACHE,
+    )
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    captured_events = []
+    recorded_extras = []
+
+    class MockScope:
+        def __init__(self):
+            self.extras = {}
+            self.tags = {}
+        def set_extra(self, k, v):
+            self.extras[k] = v
+        def set_tag(self, k, v):
+            self.tags[k] = v
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+
+    current_scope = MockScope()
+
+    def mock_push_scope():
+        return current_scope
+
+    def mock_capture(err):
+        captured_events.append(err)
+        recorded_extras.append(dict(current_scope.extras))
+
+    monkeypatch.setattr(sentry_sdk, "push_scope", mock_push_scope, raising=False)
+    monkeypatch.setattr(sentry_sdk, "isolation_scope", mock_push_scope, raising=False)
+    monkeypatch.setattr(sentry_sdk, "capture_exception", mock_capture)
+
+    simulated_time = 1000.0
+    err_a = ValueError("Repeated sync network timeout")
+    err_b = KeyError("Missing workspace config")
+
+    # 1. Same error 5 times inside 15 minutes (900 seconds)
+    for i in range(5):
+        sent = capture_worker_exception_rate_limited(err_a, key_prefix="test_loop", _clock=lambda: simulated_time)
+        if i == 0:
+            assert sent is True
+        else:
+            assert sent is False
+        simulated_time += 30.0  # +30s each call, total 120s < 900s
+
+    # Exactly 1 capture fired, 4 suppressed
+    assert len(captured_events) == 1
+    assert "rate_limit_suppressed_occurrences" not in recorded_extras[0]
+
+    # 2. Advance fake clock past the 15-minute window (> 900 seconds)
+    simulated_time = 1000.0 + 905.0  # 15 min 5 sec later
+    sent_after_window = capture_worker_exception_rate_limited(
+        err_a, key_prefix="test_loop", _clock=lambda: simulated_time
+    )
+    assert sent_after_window is True
+    assert len(captured_events) == 2
+    # Verify the 2nd capture carried the suppressed count
+    assert recorded_extras[1].get("rate_limit_suppressed_occurrences") == 4
+
+    # 3. Different error fires immediately
+    sent_diff = capture_worker_exception_rate_limited(
+        err_b, key_prefix="test_loop", _clock=lambda: simulated_time + 10.0
+    )
+    assert sent_diff is True
+    assert len(captured_events) == 3
+
+
+def test_worker_rate_limiter_negative_proof_and_bounded_cache(monkeypatch):
+    """
+    Task 12c - Item E.2 & E.3:
+    1. Negative proof: break the limiter (window = 0 or bypass), prove that all 5 errors fire to Sentry.
+       Then restore and prove only 1 fires.
+    2. Bounded cache: inserting > 200 unique error signatures caps memory at max 200 and evicts oldest.
+    """
+    from app.worker.stream_consumer import (
+        capture_worker_exception_rate_limited,
+        _ERROR_RATE_LIMIT_CACHE,
+        _MAX_ERROR_CACHE_ENTRIES,
+    )
+    import app.worker.stream_consumer as sc
+
+    # --- NEGATIVE PROOF: Bypassed Limiter ---
+    captured_broken = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_broken.append(e))
+
+    # Temporarily set window to 0 seconds (simulating disabled/broken limiter)
+    monkeypatch.setattr(sc, "_ERROR_RATE_LIMIT_INTERVAL_SECONDS", 0)
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    err = RuntimeError("Flapping worker connection")
+    for _ in range(5):
+        capture_worker_exception_rate_limited(err, key_prefix="broken_loop", _clock=1000.0)
+
+    # In broken/disabled state, all 5 calls fire directly
+    assert len(captured_broken) == 5, f"Expected 5 unthrottled captures, got {len(captured_broken)}"
+
+    # --- RESTORED: Limiter Enforced ---
+    captured_restored = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e: captured_restored.append(e))
+    monkeypatch.setattr(sc, "_ERROR_RATE_LIMIT_INTERVAL_SECONDS", 900)
+    _ERROR_RATE_LIMIT_CACHE.clear()
+
+    for _ in range(5):
+        capture_worker_exception_rate_limited(err, key_prefix="restored_loop", _clock=1000.0)
+
+    # In restored state, only 1 fires
+    assert len(captured_restored) == 1
+
+    # --- BOUNDED CACHE VERIFICATION (Max 200 entries) ---
+    _ERROR_RATE_LIMIT_CACHE.clear()
+    assert _MAX_ERROR_CACHE_ENTRIES == 200
+
+    # Insert 250 distinct signatures
+    for idx in range(250):
+        unique_err = Exception(f"Unique failure code #{idx}")
+        capture_worker_exception_rate_limited(unique_err, key_prefix=f"sig_{idx}", _clock=1000.0 + idx)
+
+    # Must be bounded strictly at 200
+    assert len(_ERROR_RATE_LIMIT_CACHE) == 200
+    # Oldest 50 (indices 0..49) must have been evicted
+    assert "sig_0:Exception:Unique failure code #0" not in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_49:Exception:Unique failure code #49" not in _ERROR_RATE_LIMIT_CACHE
+    # Newest (indices 50..249) must be retained
+    assert "sig_50:Exception:Unique failure code #50" in _ERROR_RATE_LIMIT_CACHE
+    assert "sig_249:Exception:Unique failure code #249" in _ERROR_RATE_LIMIT_CACHE
+
+

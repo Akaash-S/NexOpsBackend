@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.database import get_session
 from app.core.security import get_current_user, verify_extended_navigation
@@ -171,7 +171,7 @@ async def submit_feedback(
     # 3. Update confirmation state
     target_cause.confirmed = feedback.confirmed
     target_cause.confirmed_by = user.id
-    target_cause.updated_at = datetime.utcnow()
+    target_cause.updated_at = datetime.now(timezone.utc)
     session.add(target_cause)
     
     # Insert immutable ledger entry for this decision
@@ -186,7 +186,7 @@ async def submit_feedback(
         confirmed_by=user.id,
         score_at_time=target_cause.score,
         reasons_at_time=target_cause.reason or "",
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     session.add(log_entry)
     
@@ -201,7 +201,7 @@ async def submit_feedback(
         for other in others_result.scalars().all():
             other.confirmed = False
             other.confirmed_by = user.id
-            other.updated_at = datetime.utcnow()
+            other.updated_at = datetime.now(timezone.utc)
             session.add(other)
 
             other_log = CandidateCauseFeedbackLog(
@@ -214,7 +214,7 @@ async def submit_feedback(
                 confirmed_by=user.id,
                 score_at_time=other.score,
                 reasons_at_time=other.reason or "",
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             session.add(other_log)
             
@@ -341,7 +341,7 @@ async def upsert_postmortem(
     update_data = body.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(pm, field, value)
-    pm.updated_at = datetime.utcnow()
+    pm.updated_at = datetime.now(timezone.utc)
 
     session.add(pm)
     await session.commit()
@@ -379,7 +379,7 @@ async def publish_postmortem(
         )
 
     pm.status = "published"
-    pm.updated_at = datetime.utcnow()
+    pm.updated_at = datetime.now(timezone.utc)
     session.add(pm)
     await session.commit()
     await session.refresh(pm)

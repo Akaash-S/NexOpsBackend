@@ -39,6 +39,55 @@ DEAD_LETTER_STREAM = "nexops:events:dead"
 CONSUMER_NAME = f"consumer-{socket.gethostname()}-{os.getpid()}"
 MAX_RETRIES = 3
 
+import time
+from collections import OrderedDict
+from typing import Dict, Tuple
+
+_ERROR_RATE_LIMIT_CACHE: OrderedDict[str, Tuple[float, int]] = OrderedDict()
+_ERROR_RATE_LIMIT_INTERVAL_SECONDS = 900  # 15-minute deduplication window per unique error signature
+_MAX_ERROR_CACHE_ENTRIES = 200
+
+
+def capture_worker_exception_rate_limited(err: Exception, key_prefix: str = "", _clock=None) -> bool:
+    """
+    Rate-cap and deduplicate worker exceptions sent to Sentry.
+    Prevents repeated failures in worker loops (e.g. 60s auto-sync failing repeatedly)
+    from exhausting the Sentry quota. Bounded to max 200 unique signatures (LRU order).
+    Returns True if exception was sent to Sentry, False if deduplicated/suppressed.
+    """
+    now = _clock() if callable(_clock) else (float(_clock) if _clock is not None else time.time())
+    err_sig = f"{key_prefix}:{type(err).__name__}:{str(err)}"
+
+    suppressed = 0
+    if err_sig in _ERROR_RATE_LIMIT_CACHE:
+        last_sent, suppressed = _ERROR_RATE_LIMIT_CACHE[err_sig]
+        if now - last_sent < _ERROR_RATE_LIMIT_INTERVAL_SECONDS:
+            _ERROR_RATE_LIMIT_CACHE[err_sig] = (last_sent, suppressed + 1)
+            _ERROR_RATE_LIMIT_CACHE.move_to_end(err_sig)
+            return False
+        # 15-minute window expired: carry over suppressed count to the new capture
+        _ERROR_RATE_LIMIT_CACHE.pop(err_sig, None)
+
+    # Evict oldest entry if cache exceeds maximum capacity
+    while len(_ERROR_RATE_LIMIT_CACHE) >= _MAX_ERROR_CACHE_ENTRIES:
+        _ERROR_RATE_LIMIT_CACHE.popitem(last=False)
+
+    _ERROR_RATE_LIMIT_CACHE[err_sig] = (now, 0)
+    scope_ctx = getattr(sentry_sdk, "isolation_scope", None) or getattr(sentry_sdk, "push_scope", None)
+    try:
+        if scope_ctx:
+            with scope_ctx() as scope:
+                if suppressed > 0:
+                    scope.set_extra("rate_limit_suppressed_occurrences", suppressed)
+                if key_prefix:
+                    scope.set_tag("worker_context", key_prefix)
+                sentry_sdk.capture_exception(err)
+        else:
+            sentry_sdk.capture_exception(err)
+    except Exception:
+        sentry_sdk.capture_exception(err)
+    return True
+
 async def init_consumer_group():
     """Create consumer group if it doesn't already exist."""
     if not redis_client:
@@ -54,7 +103,7 @@ async def init_consumer_group():
             logger.info(f"Consumer group {GROUP_NAME} already exists.")
         else:
             logger.error(f"Failed to create consumer group: {e}")
-            sentry_sdk.capture_exception(e)
+            capture_worker_exception_rate_limited(e, key_prefix="init_consumer_group")
             return False
     return True
 
@@ -101,8 +150,8 @@ async def handle_message(msg_id: str, fields: dict):
 
     except Exception as err:
         logger.error(f"Error processing event {event_id}: {err}", exc_info=True)
-        sentry_sdk.capture_exception(err)
-        
+        capture_worker_exception_rate_limited(err, key_prefix=f"worker_event_{event_id}")
+
         # 5. Retry/Dead-letter logic
         next_retry = retry_count + 1
         if next_retry >= MAX_RETRIES:
@@ -124,7 +173,7 @@ async def handle_message(msg_id: str, fields: dict):
                 logger.info(f"Event {event_id} successfully dead-lettered.")
             except Exception as dl_err:
                 logger.critical(f"Failed to dead-letter event {event_id}: {dl_err}")
-                sentry_sdk.capture_exception(dl_err)
+                capture_worker_exception_rate_limited(dl_err, key_prefix=f"worker_dead_letter_{event_id}")
         else:
             logger.info(f"Re-queueing event {event_id} for retry {next_retry}")
             try:
@@ -141,7 +190,7 @@ async def handle_message(msg_id: str, fields: dict):
                 await redis_client.xack(STREAM_NAME, GROUP_NAME, msg_id)
             except Exception as rq_err:
                 logger.critical(f"Failed to re-queue event {event_id}: {rq_err}")
-                sentry_sdk.capture_exception(rq_err)
+                capture_worker_exception_rate_limited(rq_err, key_prefix=f"worker_requeue_{event_id}")
 
 async def github_auto_sync_loop():
     """Periodic background task that automatically syncs GitHub repositories, deployments, and prunes deleted repos across active connected workspaces."""
@@ -180,11 +229,11 @@ async def github_auto_sync_loop():
                         logger.info(f"Background GitHub auto-sync completed for user {db_user.id} (workspace {db_user.workspace_id})")
                 except Exception as sync_err:
                     logger.warning(f"Background auto-sync failed for user {uid}: {sync_err}")
-                    sentry_sdk.capture_exception(sync_err)
+                    capture_worker_exception_rate_limited(sync_err, key_prefix=f"auto_sync_user_{uid}")
         except Exception as e:
             logger.error(f"Error in GitHub background auto-sync loop: {e}")
-            sentry_sdk.capture_exception(e)
-        
+            capture_worker_exception_rate_limited(e, key_prefix="auto_sync_loop")
+
         await asyncio.sleep(60)
 
 from datetime import datetime, timezone
@@ -256,7 +305,7 @@ async def run_consumer(stop_event: asyncio.Event):
                     await init_consumer_group()
                 else:
                     logger.error(f"Error in consumer loop: {e}")
-                    sentry_sdk.capture_exception(e)
+                    capture_worker_exception_rate_limited(e, key_prefix="consumer_loop")
                 await asyncio.sleep(2)  # Cool down on unexpected errors
     finally:
         logger.info("Cancelling background tasks...")

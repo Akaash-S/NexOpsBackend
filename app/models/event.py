@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON, String, Index, text
+from app.models.common import utc_now
 
 
 class Event(SQLModel, table=True):
@@ -42,7 +43,7 @@ class Event(SQLModel, table=True):
     pd_incident_id: Optional[str] = Field(default=None, max_length=64, nullable=True, index=True)
 
     processed: bool = Field(default=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
     __table_args__ = (
         Index(

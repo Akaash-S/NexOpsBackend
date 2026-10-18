@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, List
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON
+from app.models.common import utc_now
 
 
 class Incident(SQLModel, table=True):
@@ -38,7 +39,7 @@ class Incident(SQLModel, table=True):
     pd_incident_id: Optional[str] = Field(default=None, max_length=64, nullable=True, index=True)
 
     # Timestamps
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=utc_now)
     resolved_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)

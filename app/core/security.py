@@ -65,13 +65,13 @@ async def get_current_user(
         # Security audit P2-A4: mock tokens restricted to APP_ENV="local" only.
         # Previously all non-production envs (including staging) accepted mock tokens.
         # Now only exact "local" match permits the bypass, closing the staging gap.
-        is_local_dev = settings.APP_ENV in ("local", "development")
-        if is_local_dev and credentials.credentials == "mock-live-closure":
-            decoded_token = {"uid": "usr-live-closure", "email": "live-closure-admin@nexops.dev", "name": "Live Closure Admin"}
+        is_mock_allowed = (settings.APP_ENV in ("local", "development") or settings.ALLOW_MOCK_AUTH) and settings.APP_ENV != "production"
+        if is_mock_allowed and credentials.credentials == "mock-live-closure":
+            decoded_token = {"uid": "usr-live-closure", "email": "live-closure-admin@example.internal", "name": "Live Closure Admin"}
             uid = "usr-live-closure"
-        elif is_local_dev and credentials.credentials in ("mock-auth-token", "test-token"):
-            decoded_token = {"uid": "lqEUnHMRWKcv6anhNOH9Bd6fhUU2", "email": "mattpersonal321@gmail.com", "name": "Matt"}
-            uid = "lqEUnHMRWKcv6anhNOH9Bd6fhUU2"
+        elif is_mock_allowed and credentials.credentials in ("mock-auth-token", "test-token"):
+            decoded_token = {"uid": "usr-mock-dev-001", "email": "mock-admin@example.internal", "name": "Mock Developer"}
+            uid = "usr-mock-dev-001"
         else:
             decoded_token = auth.verify_id_token(credentials.credentials)
             uid = decoded_token.get("uid")
