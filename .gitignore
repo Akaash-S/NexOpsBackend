@@ -17,8 +17,6 @@ docs/
 legacy_migrations/*
 backups/*
 truncate_db.py
-scripts/*
-!scripts/nexops-worker.service
 scratch_real_token.txt
 test_venv/
 .pg_local_data/

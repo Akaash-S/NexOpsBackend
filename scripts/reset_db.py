@@ -1,4 +1,9 @@
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from app.core.database import engine
 from sqlmodel import SQLModel
 # Import all models to ensure they are registered with SQLModel.metadata

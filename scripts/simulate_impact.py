@@ -1,6 +1,11 @@
 import asyncio
+import os
+import sys
 import uuid
 from datetime import datetime
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from sqlmodel import select
 from app.core.database import engine, AsyncSession
 from app.models.event import Event

@@ -1,5 +1,7 @@
 # NexOps — FastAPI Backend & Background Worker Engine
 
+[![CI - NexOps Test Suite](https://github.com/Akaash-S/NexOpsBackend/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Akaash-S/NexOpsBackend/actions/workflows/ci.yml)
+
 <p align="center">
   <a href="https://skillicons.dev">
     <img src="https://skillicons.dev/icons?i=py,fastapi,postgres,redis,docker,gcp,git,github,githubactions" alt="Backend Tech Stack Icons" />
@@ -116,9 +118,9 @@ sequenceDiagram
 
 | Dimension | Count / Status | Verification Evidence |
 | :--- | :--- | :--- |
-| **API Endpoints** | 39 distinct endpoints | Inspected across 13 FastAPI router files under `app/api/routes/` |
+| **API Endpoints** | 66 API endpoints (56 unique routes) | Inspected across 13 FastAPI router files under `app/api/routes/` plus root health endpoints in `app/main.py` (70 total route handlers including OpenAPI/docs) |
 | **Database Tables** | 13 SQLModel models | `users`, `workspaces`, `repos`, `clusters`, `events`, `alerts`, `deployments`, `incidents`, `candidate_causes`, `postmortems`, `dependencies`, `alert_rules`, `scoring_weight_recalibrations` |
-| **Core Services** | 10 domain services | `alert_service`, `automation_service`, `correlation_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
+| **Core Services** | 12 domain services | `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
 | **Worker Loops** | 2 continuous loops | `stream_consumer.py` (Redis Streams consumer group `nexops-workers`) + GitHub background auto-sync polling loop (every 60s) |
 | **Pytest Test Suite** | 61 passed / 0 failed (100%) | `test_venv/Scripts/python -m pytest` across 14 test files in `tests/` |
 | **Weight Recalibration** | Fully wired & tested | `< 20` samples returns defaults; `≥ 20` samples recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
@@ -160,8 +162,8 @@ Follow these steps to run the complete NexOps stack locally:
 ### 2. Setup Virtual Environment & Dependencies
 
 ```bash
-# Clone and enter backend directory
-cd backend
+# Clone and enter backend repository
+cd NexOpsBackend
 
 # Create virtual environment
 python -m venv test_venv
@@ -179,7 +181,7 @@ pip install pytest pytest-asyncio
 
 ### 3. Environment Configuration
 
-Create a `.env` file in `backend/` with:
+Create a `.env` file in the repository root with:
 
 ```env
 APP_NAME=NexOps
@@ -203,7 +205,7 @@ PAGERDUTY_WEBHOOK_SECRET=demo_pagerduty_secret
 alembic upgrade head
 
 # Seed demo workspace, repositories, and incident precedent
-python seed.py
+python scripts/seed.py
 ```
 
 ### 5. Launch the API & Background Worker
@@ -236,7 +238,7 @@ python tests/load/load_test_webhooks.py
 ## 📁 Repository Structure
 
 ```
-backend/
+.
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml              # GitHub Actions CI with Postgres & Redis service containers
@@ -247,9 +249,17 @@ backend/
 │   ├── core/                   # Security, RLS bypass context manager, Redis client, Database engine
 │   ├── models/                 # 13 SQLModel data models with UTC timezone enforcement
 │   ├── schemas/                # Pydantic request & response validation schemas
-│   ├── services/               # Automation, Correlation, Recalibration, Impact analysis
+│   ├── services/               # Automation, Correlation, Recalibration, Impact analysis (12 domain services)
 │   ├── worker/                 # Redis stream consumer & background GitHub auto-sync loop
 │   └── main.py                 # FastAPI application, lifespan checks, and health endpoints
+├── scripts/                    # Management & operational scripts
+│   ├── add_performance_indexes.py
+│   ├── post_deploy_smoke.py    # Production deployment health verification
+│   ├── reset_db.py             # Database reset utility
+│   ├── rotate_key.py           # Webhook key rotation utility
+│   ├── seed.py                 # Realistic demo data seeder
+│   ├── simulate_impact.py      # Dependency impact propagation simulation
+│   └── synthetic_incident_sim.py
 ├── tests/
 │   ├── conftest.py             # Engine & Redis connection pool teardown fixture
 │   ├── load/
