@@ -1,15 +1,13 @@
-name: CI - NexOps Test Suite
+name: CI - Test Suite
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 jobs:
   test:
-    name: Backend Pytest Suite (Postgres & Redis Containers)
+    name: Backend Pytest Suite (Ephemeral DB)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -40,16 +38,13 @@ jobs:
       APP_ENV: test
       DEBUG: "true"
       API_PREFIX: /api/v1
-      ALLOW_MOCK_AUTH: "false"
       DATABASE_URL: postgresql+asyncpg://nexops_app_role:ci_ephemeral_password@localhost:5432/nexops_ci
       LOCAL_MIGRATION_DATABASE_URL: postgresql+asyncpg://nexops_app_role:ci_ephemeral_password@localhost:5432/nexops_ci
       REDIS_URL: redis://localhost:6379
-      REDIS_MAX_CONNECTIONS: 50
       CORS_ORIGINS: '["http://localhost:3000"]'
       FIREBASE_SERVICE_ACCOUNT_PATH: /tmp/firebase-service-account.json
       ENCRYPTION_KEY: ${{ secrets.CI_TEST_ENCRYPTION_KEY || 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=' }}
       GITHUB_WEBHOOK_SECRET: ci_test_github_webhook_secret
-      PAGERDUTY_WEBHOOK_SECRET: ci_test_pagerduty_webhook_secret
       PYTHONPATH: .
 
     steps:
@@ -94,7 +89,7 @@ jobs:
 
       - name: Run Full Test Suite
         run: |
-          pytest -v --tb=short 2>&1 | tee pytest-output.log
+          pytest -v 2>&1 | tee pytest-output.log
 
       - name: Upload Test Output Log
         if: always()

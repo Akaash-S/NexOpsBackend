@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlmodel import select
 from typing import List, Optional
 
-from datetime import datetime, timezone
+from datetime import datetime
 from app.core.database import get_session
 from app.core.security import get_current_user, verify_extended_navigation
 from app.core.redis import get_cached_data, set_cached_data
@@ -145,7 +145,7 @@ async def get_activity_data(
         return ActivityResponse(**cached)
 
     from datetime import timedelta
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     seven_days_ago = now - timedelta(days=6) # 7 days including today
 
     # Fetch events from the last 7 days scoped to workspace_id

@@ -10,7 +10,7 @@ import re
 import uuid
 import json
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from sqlalchemy import text
 from sqlmodel import select
@@ -49,21 +49,21 @@ async def test_factor_same_repo():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-same-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Same Repo WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Same Repo WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-same-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         repo_id = f"repo-same-{uuid.uuid4().hex[:8]}"
-        repo = Repo(id=repo_id, name="auth-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo = Repo(id=repo_id, name="auth-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         evt = Event(id=f"evt-same-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=5))
         session.add(evt)
         await session.flush()
@@ -96,27 +96,27 @@ async def test_factor_direct_dependency_1hop():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-1hop-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="1Hop WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="1Hop WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-1hop-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         # Alerting repo (api-gateway) depends on upstream repo (auth-service)
-        repo_alert = Repo(id=f"repo-alert-{uuid.uuid4().hex[:8]}", name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_up = Repo(id=f"repo-up-{uuid.uuid4().hex[:8]}", name="auth-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_alert = Repo(id=f"repo-alert-{uuid.uuid4().hex[:8]}", name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_up = Repo(id=f"repo-up-{uuid.uuid4().hex[:8]}", name="auth-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_alert)
         session.add(repo_up)
         await session.flush()
 
-        dep = Dependency(id=f"dep-1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_alert.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep = Dependency(id=f"dep-1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_alert.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(dep)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         evt = Event(id=f"evt-1hop-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_up.id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=10))
         session.add(evt)
         await session.flush()
@@ -150,31 +150,31 @@ async def test_factor_transitive_dependency_2hop():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-2hop-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="2Hop WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="2Hop WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-2hop-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         # Chain: frontend -> api-service -> db-service
-        repo_a = Repo(id=f"repo-fe-{uuid.uuid4().hex[:8]}", name="frontend", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_b = Repo(id=f"repo-api-{uuid.uuid4().hex[:8]}", name="api-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_c = Repo(id=f"repo-db-{uuid.uuid4().hex[:8]}", name="db-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a = Repo(id=f"repo-fe-{uuid.uuid4().hex[:8]}", name="frontend", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_b = Repo(id=f"repo-api-{uuid.uuid4().hex[:8]}", name="api-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_c = Repo(id=f"repo-db-{uuid.uuid4().hex[:8]}", name="db-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_a)
         session.add(repo_b)
         session.add(repo_c)
         await session.flush()
 
-        dep1 = Dependency(id=f"dep-2a-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        dep2 = Dependency(id=f"dep-2b-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep1 = Dependency(id=f"dep-2a-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        dep2 = Dependency(id=f"dep-2b-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(dep1)
         session.add(dep2)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         evt = Event(id=f"evt-2hop-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_c.id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=15))
         session.add(evt)
         await session.flush()
@@ -207,30 +207,30 @@ async def test_factor_transitive_dependency_3hop():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-3hop-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="3Hop WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="3Hop WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-3hop-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         # Chain: A -> B -> C -> D
-        repo_a = Repo(id=f"repo-3a-{uuid.uuid4().hex[:8]}", name="svc-a", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_b = Repo(id=f"repo-3b-{uuid.uuid4().hex[:8]}", name="svc-b", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_c = Repo(id=f"repo-3c-{uuid.uuid4().hex[:8]}", name="svc-c", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_d = Repo(id=f"repo-3d-{uuid.uuid4().hex[:8]}", name="svc-d", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a = Repo(id=f"repo-3a-{uuid.uuid4().hex[:8]}", name="svc-a", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_b = Repo(id=f"repo-3b-{uuid.uuid4().hex[:8]}", name="svc-b", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_c = Repo(id=f"repo-3c-{uuid.uuid4().hex[:8]}", name="svc-c", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_d = Repo(id=f"repo-3d-{uuid.uuid4().hex[:8]}", name="svc-d", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([repo_a, repo_b, repo_c, repo_d])
         await session.flush()
 
-        dep1 = Dependency(id=f"dep-3a-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        dep2 = Dependency(id=f"dep-3b-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        dep3 = Dependency(id=f"dep-3c-{uuid.uuid4().hex[:8]}", source_repo_id=repo_c.id, target_repo_id=repo_d.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep1 = Dependency(id=f"dep-3a-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        dep2 = Dependency(id=f"dep-3b-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        dep3 = Dependency(id=f"dep-3c-{uuid.uuid4().hex[:8]}", source_repo_id=repo_c.id, target_repo_id=repo_d.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([dep1, dep2, dep3])
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         evt = Event(id=f"evt-3hop-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_d.id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=20))
         session.add(evt)
         await session.flush()
@@ -263,16 +263,16 @@ async def test_factor_temporal_tiers():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-temp-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Temporal WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Temporal WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-temp-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Test distinct time intervals: 1 min, 10 min (<=15m), 45 min (15-60m), 90 min (60-120m)
         test_intervals = [
             (1, "Deployed 1 minute before the incident was triggered."),
@@ -283,7 +283,7 @@ async def test_factor_temporal_tiers():
 
         for minutes_ago, expected_sentence in test_intervals:
             repo_id = f"repo-temp-{minutes_ago}-{uuid.uuid4().hex[:8]}"
-            repo = Repo(id=repo_id, name=f"temporal-{minutes_ago}m", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+            repo = Repo(id=repo_id, name=f"temporal-{minutes_ago}m", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
             session.add(repo)
             await session.flush()
 
@@ -335,20 +335,20 @@ async def test_factor_past_precedent():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-prec-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Precedent WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Precedent WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-prec-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
 
         # 1. Test plural days (14 days ago)
         repo_id_14 = f"repo-prec-14-{uuid.uuid4().hex[:8]}"
-        repo_14 = Repo(id=repo_id_14, name="order-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_14 = Repo(id=repo_id_14, name="order-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_14)
         await session.flush()
 
@@ -407,7 +407,7 @@ async def test_factor_past_precedent():
 
         # 2. Test singular day (1 day ago)
         repo_id_1 = f"repo-prec-1-{uuid.uuid4().hex[:8]}"
-        repo_1 = Repo(id=repo_id_1, name="inventory-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_1 = Repo(id=repo_id_1, name="inventory-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_1)
         await session.flush()
 
@@ -476,12 +476,12 @@ async def test_factor_deploy_risk_elevated():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-risk-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Risk WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Risk WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-risk-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
@@ -489,20 +489,20 @@ async def test_factor_deploy_risk_elevated():
         # repo_alert (alerting service) -> depends on -> repo_up (upstream service, deployed)
         # repo_down (downstream service) -> depends on -> repo_up
         # repo_down has an active open incident, but repo_up has NO open incidents on itself.
-        repo_alert = Repo(id=f"repo-ra-alert-{uuid.uuid4().hex[:8]}", name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_up = Repo(id=f"repo-ra-up-{uuid.uuid4().hex[:8]}", name="core-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_down = Repo(id=f"repo-ra-down-{uuid.uuid4().hex[:8]}", name="web-client", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_alert = Repo(id=f"repo-ra-alert-{uuid.uuid4().hex[:8]}", name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_up = Repo(id=f"repo-ra-up-{uuid.uuid4().hex[:8]}", name="core-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_down = Repo(id=f"repo-ra-down-{uuid.uuid4().hex[:8]}", name="web-client", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([repo_alert, repo_up, repo_down])
         await session.flush()
 
         # Alerting service depends on upstream service
-        dep1 = Dependency(id=f"dep-r1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_alert.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep1 = Dependency(id=f"dep-r1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_alert.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         # Downstream service depends on upstream service
-        dep2 = Dependency(id=f"dep-r2-{uuid.uuid4().hex[:8]}", source_repo_id=repo_down.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep2 = Dependency(id=f"dep-r2-{uuid.uuid4().hex[:8]}", source_repo_id=repo_down.id, target_repo_id=repo_up.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([dep1, dep2])
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Open incident on web-client (downstream of core-service)
         downstream_inc = Incident(id=f"inc-down-{uuid.uuid4().hex[:8]}", title="Web Outage", workspace_id=ws_id, root_cause_repo_id=repo_down.id, status="open", created_at=now - timedelta(minutes=30), updated_at=now - timedelta(minutes=30))
         session.add(downstream_inc)
@@ -542,17 +542,17 @@ async def test_deployment_risk_helper_sentences():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-rh-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Risk Helper WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Risk Helper WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-rh-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         # Branch 1: Isolated service with no downstream repos and no incidents -> Low risk
-        repo_iso = Repo(id=f"repo-iso-{uuid.uuid4().hex[:8]}", name="isolated-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_iso = Repo(id=f"repo-iso-{uuid.uuid4().hex[:8]}", name="isolated-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_iso)
         await session.flush()
 
@@ -561,12 +561,12 @@ async def test_deployment_risk_helper_sentences():
         assert res_iso["risk_basis"] == "Low risk: no downstream services depend on this service and no recent incidents."
 
         # Branch 2: Service with downstream repo but no incidents -> Baseline risk
-        repo_base = Repo(id=f"repo-base-{uuid.uuid4().hex[:8]}", name="base-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_child = Repo(id=f"repo-ch-{uuid.uuid4().hex[:8]}", name="child-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_base = Repo(id=f"repo-base-{uuid.uuid4().hex[:8]}", name="base-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_child = Repo(id=f"repo-ch-{uuid.uuid4().hex[:8]}", name="child-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([repo_base, repo_child])
         await session.flush()
 
-        dep_bc = Dependency(id=f"dep-bc-{uuid.uuid4().hex[:8]}", source_repo_id=repo_child.id, target_repo_id=repo_base.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep_bc = Dependency(id=f"dep-bc-{uuid.uuid4().hex[:8]}", source_repo_id=repo_child.id, target_repo_id=repo_base.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(dep_bc)
         await session.flush()
 
@@ -595,30 +595,30 @@ async def test_arithmetic_patterns_scanner():
 
         # Setup test workspace and scenarios covering all branches
         ws_id = f"ws-scan-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Scan WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Scan WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-scan-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
-        repo_a = Repo(id=f"repo-sca-{uuid.uuid4().hex[:8]}", name="svc-a", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_b = Repo(id=f"repo-scb-{uuid.uuid4().hex[:8]}", name="svc-b", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_c = Repo(id=f"repo-scc-{uuid.uuid4().hex[:8]}", name="svc-c", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        repo_d = Repo(id=f"repo-scd-{uuid.uuid4().hex[:8]}", name="svc-d", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a = Repo(id=f"repo-sca-{uuid.uuid4().hex[:8]}", name="svc-a", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_b = Repo(id=f"repo-scb-{uuid.uuid4().hex[:8]}", name="svc-b", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_c = Repo(id=f"repo-scc-{uuid.uuid4().hex[:8]}", name="svc-c", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        repo_d = Repo(id=f"repo-scd-{uuid.uuid4().hex[:8]}", name="svc-d", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([repo_a, repo_b, repo_c, repo_d])
         await session.flush()
 
         # Dependencies: A -> B -> C -> D
-        dep1 = Dependency(id=f"dep-sc1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        dep2 = Dependency(id=f"dep-sc2-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-        dep3 = Dependency(id=f"dep-sc3-{uuid.uuid4().hex[:8]}", source_repo_id=repo_c.id, target_repo_id=repo_d.id, workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        dep1 = Dependency(id=f"dep-sc1-{uuid.uuid4().hex[:8]}", source_repo_id=repo_a.id, target_repo_id=repo_b.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        dep2 = Dependency(id=f"dep-sc2-{uuid.uuid4().hex[:8]}", source_repo_id=repo_b.id, target_repo_id=repo_c.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        dep3 = Dependency(id=f"dep-sc3-{uuid.uuid4().hex[:8]}", source_repo_id=repo_c.id, target_repo_id=repo_d.id, workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add_all([dep1, dep2, dep3])
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Events on same repo, 1-hop, 2-hop, 3-hop
         evt_a = Event(id=f"evt-sca-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_a.id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=5))
         evt_b = Event(id=f"evt-scb-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_b.id, workspace_id=ws_id, payload={}, created_at=now - timedelta(minutes=10))
@@ -746,35 +746,35 @@ async def test_workspace_scoping_and_isolation():
 
         # Workspace A
         ws_a_id = f"ws-iso-a-{uuid.uuid4().hex[:8]}"
-        ws_a = Workspace(id=ws_a_id, name="WS A", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws_a = Workspace(id=ws_a_id, name="WS A", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws_a)
         await session.flush()
 
         usr_a_id = f"usr-a-{uuid.uuid4().hex[:8]}"
-        usr_a = User(id=usr_a_id, email=f"{usr_a_id}@test.com", full_name="User A", role="admin", workspace_id=ws_a_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr_a = User(id=usr_a_id, email=f"{usr_a_id}@test.com", full_name="User A", role="admin", workspace_id=ws_a_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr_a)
         await session.flush()
 
-        repo_a = Repo(id=f"repo-a-{uuid.uuid4().hex[:8]}", name="service-a", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a.id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a = Repo(id=f"repo-a-{uuid.uuid4().hex[:8]}", name="service-a", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a.id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_a)
         await session.flush()
 
         # Workspace B
         ws_b_id = f"ws-iso-b-{uuid.uuid4().hex[:8]}"
-        ws_b = Workspace(id=ws_b_id, name="WS B", color="green", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws_b = Workspace(id=ws_b_id, name="WS B", color="green", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws_b)
         await session.flush()
 
         usr_b_id = f"usr-b-{uuid.uuid4().hex[:8]}"
-        usr_b = User(id=usr_b_id, email=f"{usr_b_id}@test.com", full_name="User B", role="admin", workspace_id=ws_b_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr_b = User(id=usr_b_id, email=f"{usr_b_id}@test.com", full_name="User B", role="admin", workspace_id=ws_b_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr_b)
         await session.flush()
 
-        repo_b = Repo(id=f"repo-b-{uuid.uuid4().hex[:8]}", name="service-b", platform="github", default_branch="main", workspace_id=ws_b_id, user_id=usr_b.id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_b = Repo(id=f"repo-b-{uuid.uuid4().hex[:8]}", name="service-b", platform="github", default_branch="main", workspace_id=ws_b_id, user_id=usr_b.id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_b)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Event in Workspace B
         evt_b = Event(id=f"evt-b-{uuid.uuid4().hex[:8]}", type="push", source="github", repo_id=repo_b.id, workspace_id=ws_b_id, payload={}, created_at=now - timedelta(minutes=5))
         session.add(evt_b)

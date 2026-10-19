@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
 
 
 class Deployment(SQLModel, table=True):
@@ -36,7 +35,7 @@ class Deployment(SQLModel, table=True):
     risk_basis: str = Field(default="")
     
     # Timestamps
-    deployed_at: datetime = Field(default_factory=utc_now)
+    deployed_at: datetime = Field(default_factory=datetime.utcnow)
     finished_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

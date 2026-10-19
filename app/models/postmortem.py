@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, Text
-from app.models.common import utc_now
 
 
 class Postmortem(SQLModel, table=True):
@@ -62,5 +61,5 @@ class Postmortem(SQLModel, table=True):
     # Status: draft | published
     status: str = Field(default="draft", index=True)
 
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

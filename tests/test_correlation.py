@@ -10,7 +10,7 @@ Verifies core correlation engine guarantees:
 import uuid
 import json
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -54,21 +54,21 @@ async def test_fix1_deduplication():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-dedup-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Dedup WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Dedup WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-dedup-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Dedup User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Dedup User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         repo_id = f"repo-dedup-{uuid.uuid4().hex[:8]}"
-        repo = Repo(id=repo_id, name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo = Repo(id=repo_id, name="api-gateway", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         # Event 1: 10 minutes ago
         evt1 = Event(
             id=f"evt-1-{uuid.uuid4().hex[:8]}",
@@ -137,17 +137,17 @@ async def test_fix2_score_capping():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-cap-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="Capping WS", color="green", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="Capping WS", color="green", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-cap-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Cap User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="Cap User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         repo_id = f"repo-cap-{uuid.uuid4().hex[:8]}"
-        repo = Repo(id=repo_id, name="billing-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo = Repo(id=repo_id, name="billing-service", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo)
         await session.flush()
 
@@ -169,7 +169,7 @@ async def test_fix2_score_capping():
         session.add(recal)
 
         # Seed confirmed past incident feedback log on this repo (within 90 days)
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         past_inc = Incident(
             id=f"inc-past-{uuid.uuid4().hex[:8]}",
             title="Past Database Crash",
@@ -266,21 +266,21 @@ async def test_fix3_unique_constraint():
         await session.execute(text("SELECT set_config('nexops.bypass_rls', 'true', false);"))
 
         ws_id = f"ws-uq-{uuid.uuid4().hex[:8]}"
-        ws = Workspace(id=ws_id, name="UQ WS", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws = Workspace(id=ws_id, name="UQ WS", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws)
         await session.flush()
 
         usr_id = f"usr-uq-{uuid.uuid4().hex[:8]}"
-        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="UQ User", role="admin", workspace_id=ws_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr = User(id=usr_id, email=f"{usr_id}@test.com", full_name="UQ User", role="admin", workspace_id=ws_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr)
         await session.flush()
 
         repo_id = f"repo-uq-{uuid.uuid4().hex[:8]}"
-        repo = Repo(id=repo_id, name="repo-uq", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo = Repo(id=repo_id, name="repo-uq", platform="github", default_branch="main", workspace_id=ws_id, user_id=usr_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo)
         await session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         mock_event = Event(
             id=f"evt-uq-{uuid.uuid4().hex[:8]}",
             repo_id=repo_id,

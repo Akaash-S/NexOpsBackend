@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
 
 
 class WorkspaceAcknowledgment(SQLModel, table=True):
@@ -21,4 +20,4 @@ class WorkspaceAcknowledgment(SQLModel, table=True):
     workspace_id: str = Field(foreign_key="workspaces.id", index=True, unique=True)
     user_id: str = Field(foreign_key="users.id", index=True)
     terms_version: str = Field(default="v1.0", max_length=50)
-    acknowledged_at: datetime = Field(default_factory=utc_now)
+    acknowledged_at: datetime = Field(default_factory=datetime.utcnow)

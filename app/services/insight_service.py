@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 from sqlmodel import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.models.repo import Repo
 from app.models.alert import Alert
@@ -122,7 +122,7 @@ async def calculate_health_score(session: AsyncSession, repo_id: str) -> Optiona
     # Update the repo record
     repo_name = repo.name
     repo.health_score = health_score
-    repo.updated_at = datetime.now(timezone.utc)
+    repo.updated_at = datetime.utcnow()
     session.add(repo)
     await session.commit()
 
@@ -169,7 +169,7 @@ async def get_repo_insights(session: AsyncSession, repo_id: str) -> Optional[dic
     }
 
     # Recent event count (last 24h)
-    day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    day_ago = datetime.utcnow() - timedelta(hours=24)
     event_query = select(func.count()).select_from(Event).where(
         Event.repo_id == repo_id,
         Event.created_at >= day_ago,

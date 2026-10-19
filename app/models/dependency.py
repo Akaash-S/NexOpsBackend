@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, String
-from app.models.common import utc_now
 
 
 class Dependency(SQLModel, table=True):
@@ -38,4 +37,4 @@ class Dependency(SQLModel, table=True):
     # Human-readable label shown on the edge
     label: str = Field(default="depends on", max_length=100)
 
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)

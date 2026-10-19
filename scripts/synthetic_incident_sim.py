@@ -171,9 +171,9 @@ def main():
     print(f"\nNexOps Synthetic Incident Simulation")
     print(f"  base_url  : {BASE}")
     print(f"  repo      : {OWNER}/{REPO}")
-    print(f"  auth token: {'*** (configured)' if TOKEN else 'none'}")
-    print(f"  GH secret : {'*** (configured)' if GITHUB_WEBHOOK_SECRET else 'none'}")
-    print(f"  PD secret : {'*** (configured)' if PAGERDUTY_WEBHOOK_SECRET else 'none'}")
+    print(f"  auth token: {TOKEN[:12]}...")
+    print(f"  GH secret : {GITHUB_WEBHOOK_SECRET[:8]}***  (len={len(GITHUB_WEBHOOK_SECRET)})")
+    print(f"  PD secret : {PAGERDUTY_WEBHOOK_SECRET[:8]}***  (len={len(PAGERDUTY_WEBHOOK_SECRET)})")
 
     results = {}   # scenario_name -> "PASS" | "FAIL" | "SKIP"
     evidence = []

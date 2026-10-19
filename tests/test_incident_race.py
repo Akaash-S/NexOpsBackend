@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 import socket
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 import pytest
@@ -57,8 +57,8 @@ async def create_fixture_workspace_and_repo(session_maker):
         color="blue",
         provider="github",
         status="connected",
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
     )
     user = User(
         id=f"usr-race-{suffix}",
@@ -66,8 +66,8 @@ async def create_fixture_workspace_and_repo(session_maker):
         full_name="Race Test User",
         role="admin",
         workspace_id=ws.id,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
     )
     repo = Repo(
         id=f"repo-race-{suffix}",
@@ -76,8 +76,8 @@ async def create_fixture_workspace_and_repo(session_maker):
         default_branch="main",
         workspace_id=ws.id,
         user_id=user.id,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
     )
     session.add(ws)
     await session.flush()
@@ -286,8 +286,8 @@ async def test_different_repos_do_not_block_each_other(session_maker):
         default_branch="main",
         workspace_id=ws.id,
         user_id=user.id,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
     )
     session.add(repo2)
     await session.commit()
@@ -364,7 +364,7 @@ async def test_window_semantics_preserved(session_maker):
         # Create an existing incident with created_at 35 minutes ago
         s1 = await get_test_session(session_maker)
         try:
-            old_time = datetime.now(timezone.utc) - timedelta(minutes=35)
+            old_time = datetime.utcnow() - timedelta(minutes=35)
             old_inc = Incident(
                 title="Older Incident",
                 severity="high",

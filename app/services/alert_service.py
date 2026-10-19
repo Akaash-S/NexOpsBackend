@@ -3,7 +3,7 @@ Alert Service
 Business logic for alert creation, querying, and resolution.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,7 +99,7 @@ async def resolve_alert(session: AsyncSession, alert_id: str, workspace_id: Opti
     if not alert:
         return None
     alert.resolved = True
-    alert.resolved_at = datetime.now(timezone.utc)
+    alert.resolved_at = datetime.utcnow()
     session.add(alert)
     await session.commit()
     await session.refresh(alert)
@@ -158,7 +158,10 @@ async def get_noisy_rules(session: AsyncSession, repo_id: str) -> List[str]:
     - It triggered at least 3 times in the last 30 days.
     - The alerts under this rule rarely correlate with a confirmed incident (correlation rate < 20%).
     """
-    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    from datetime import timedelta
+    from app.models.candidate_cause import CandidateCause
+    
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
     
     # Fetch alerts for this repo in last 30 days
     alert_query = select(Alert).where(Alert.repo_id == repo_id, Alert.created_at >= thirty_days_ago)

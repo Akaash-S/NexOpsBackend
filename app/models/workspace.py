@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
 
 
 class Workspace(SQLModel, table=True):
@@ -28,5 +27,5 @@ class Workspace(SQLModel, table=True):
     status: str = Field(default="connected")
     show_extended_navigation: bool = Field(default=False)
     
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -14,7 +14,7 @@ Tests:
 
 import uuid
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import text
 from sqlmodel import select
 from fastapi import HTTPException
@@ -45,40 +45,40 @@ async def test_repo_list_and_detail_tenant_isolation():
 
         # Setup Workspace A + User A + Repos A1, A2
         ws_a_id = f"ws-repo-a-{uuid.uuid4().hex[:8]}"
-        ws_a = Workspace(id=ws_a_id, name="Repo Isolation WS A", color="blue", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws_a = Workspace(id=ws_a_id, name="Repo Isolation WS A", color="blue", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws_a)
         await session.flush()
 
         usr_a_id = f"usr-repo-a-{uuid.uuid4().hex[:8]}"
-        usr_a = User(id=usr_a_id, email=f"{usr_a_id}@test-a.com", full_name="User Repo A", role="admin", workspace_id=ws_a_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr_a = User(id=usr_a_id, email=f"{usr_a_id}@test-a.com", full_name="User Repo A", role="admin", workspace_id=ws_a_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr_a)
         await session.flush()
 
         repo_a1_id = f"repo-a1-{uuid.uuid4().hex[:8]}"
-        repo_a1 = Repo(id=repo_a1_id, name="secret-auth-service-a1", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a1 = Repo(id=repo_a1_id, name="secret-auth-service-a1", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         repo_a2_id = f"repo-a2-{uuid.uuid4().hex[:8]}"
-        repo_a2 = Repo(id=repo_a2_id, name="secret-payment-gateway-a2", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_a2 = Repo(id=repo_a2_id, name="secret-payment-gateway-a2", platform="github", default_branch="main", workspace_id=ws_a_id, user_id=usr_a_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_a1)
         session.add(repo_a2)
 
         # Setup Workspace B + User B + Repo B1
         ws_b_id = f"ws-repo-b-{uuid.uuid4().hex[:8]}"
-        ws_b = Workspace(id=ws_b_id, name="Repo Isolation WS B", color="red", provider="github", status="connected", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        ws_b = Workspace(id=ws_b_id, name="Repo Isolation WS B", color="red", provider="github", status="connected", created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(ws_b)
         await session.flush()
 
         usr_b_id = f"usr-repo-b-{uuid.uuid4().hex[:8]}"
-        usr_b = User(id=usr_b_id, email=f"{usr_b_id}@test-b.com", full_name="User Repo B", role="admin", workspace_id=ws_b_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr_b = User(id=usr_b_id, email=f"{usr_b_id}@test-b.com", full_name="User Repo B", role="admin", workspace_id=ws_b_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr_b)
         await session.flush()
 
         repo_b1_id = f"repo-b1-{uuid.uuid4().hex[:8]}"
-        repo_b1 = Repo(id=repo_b1_id, name="public-frontend-b1", platform="github", default_branch="main", workspace_id=ws_b_id, user_id=usr_b_id, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        repo_b1 = Repo(id=repo_b1_id, name="public-frontend-b1", platform="github", default_branch="main", workspace_id=ws_b_id, user_id=usr_b_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(repo_b1)
 
         # Setup User C with workspace_id = None (Unassigned User)
         usr_c_id = f"usr-repo-c-{uuid.uuid4().hex[:8]}"
-        usr_c = User(id=usr_c_id, email=f"{usr_c_id}@test-c.com", full_name="User Repo C (Unassigned)", role="member", workspace_id=None, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        usr_c = User(id=usr_c_id, email=f"{usr_c_id}@test-c.com", full_name="User Repo C (Unassigned)", role="member", workspace_id=None, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         session.add(usr_c)
 
         await session.commit()

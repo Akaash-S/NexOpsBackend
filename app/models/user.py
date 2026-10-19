@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON
-from app.models.common import utc_now
 
 
 class User(SQLModel, table=True):
@@ -40,5 +39,5 @@ class User(SQLModel, table=True):
     )
     workspace_id: Optional[str] = Field(default=None, foreign_key="workspaces.id", index=True)
     
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -18,7 +18,6 @@ import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 from sqlmodel import select
-from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from app.core.database import async_session
 from app.models.repo import Repo
@@ -40,9 +39,6 @@ async def test_repo_sync_deduplication_and_constraint():
 
     # Ensure test workspace and user exist in test database
     async with async_session() as init_session:
-        await init_session.execute(text("DELETE FROM events WHERE workspace_id = :ws_id"), {"ws_id": test_ws_id})
-        await init_session.execute(text("DELETE FROM repos WHERE workspace_id = :ws_id"), {"ws_id": test_ws_id})
-        await init_session.execute(text("DELETE FROM users WHERE workspace_id = :ws_id AND id != :test_user_id"), {"ws_id": test_ws_id, "test_user_id": test_user_id})
         ws = await init_session.get(Workspace, test_ws_id)
         if not ws:
             ws = Workspace(id=test_ws_id, name="Test Dedup Staging WS", provider="github", status="connected")
@@ -187,9 +183,8 @@ async def test_repo_sync_deduplication_and_constraint():
 
     # Final cleanup of test workspace & user fixtures
     async with async_session() as clean_session:
-        await clean_session.execute(text("DELETE FROM events WHERE workspace_id = :ws_id"), {"ws_id": test_ws_id})
-        await clean_session.execute(text("DELETE FROM repos WHERE workspace_id = :ws_id"), {"ws_id": test_ws_id})
-        await clean_session.execute(text("DELETE FROM users WHERE workspace_id = :ws_id"), {"ws_id": test_ws_id})
+        u = await clean_session.get(User, test_user_id)
+        if u: await clean_session.delete(u)
         w = await clean_session.get(Workspace, test_ws_id)
         if w: await clean_session.delete(w)
         await clean_session.commit()

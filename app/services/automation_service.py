@@ -132,9 +132,8 @@ async def process_event(session: AsyncSession, event: Event) -> dict:
     db_event = await session.get(Event, event_id)
     if db_event:
         db_event.processed = True
-        if insight_msg and f"Insight: {insight_msg}" not in (db_event.message or ""):
-            new_msg = f"{db_event.message or ''} | Insight: {insight_msg}".strip(" | ")
-            db_event.message = new_msg[:500]
+        if insight_msg:
+            db_event.message = f"{db_event.message or ''} | Insight: {insight_msg}".strip(" | ")
         session.add(db_event)
         await session.commit()
 

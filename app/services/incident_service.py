@@ -6,7 +6,7 @@ Handles incident lifecycle, alert grouping, and cause correlation.
 import logging
 import json
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy import text
@@ -169,7 +169,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if db_cand:
             db_cand.score = cand["score"]
             db_cand.reason = cand["reason"]
-            db_cand.updated_at = datetime.now(timezone.utc)
+            db_cand.updated_at = datetime.utcnow()
             session.add(db_cand)
         else:
             db_cand = CandidateCause(
@@ -211,7 +211,7 @@ async def get_or_create_incident(
     )
 
     # Check for existing open incident for this repository
-    thirty_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=30)
+    thirty_mins_ago = datetime.utcnow() - timedelta(minutes=30)
     query = select(Incident).where(
         Incident.root_cause_repo_id == repo_id,
         Incident.status == "open",
@@ -245,7 +245,7 @@ async def get_or_create_incident(
         affected_users=calculated_affected_users,
         pd_incident_id=pd_incident_id,
         workspace_id=workspace_id,
-        started_at=datetime.now(timezone.utc)
+        started_at=datetime.utcnow()
     )
     session.add(new_incident)
     await session.flush()
@@ -263,7 +263,7 @@ async def resolve_incident(session: AsyncSession, incident_id: str):
         return
     
     incident.status = "resolved"
-    incident.resolved_at = datetime.now(timezone.utc)
+    incident.resolved_at = datetime.utcnow()
     session.add(incident)
     
     await session.commit()

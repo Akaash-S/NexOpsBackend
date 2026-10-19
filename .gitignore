@@ -11,6 +11,7 @@ build/
 .mypy_cache/
 .pytest_cache/
 .env.*
+tests/*
 scratch/*
 service-account.json
 docs/
@@ -20,5 +21,3 @@ truncate_db.py
 scripts/*
 !scripts/nexops-worker.service
 scratch_real_token.txt
-test_venv/
-.pg_local_data/

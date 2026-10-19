@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
 from sqlalchemy import Column, String
 
 
@@ -55,5 +54,5 @@ class Repo(SQLModel, table=True):
     github_updated_at: Optional[datetime] = Field(default=None)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

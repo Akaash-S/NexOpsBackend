@@ -3,7 +3,7 @@ Repository Service
 Business logic for repository CRUD and state management.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,7 +104,7 @@ async def update_repo(
     for key, value in update_data.items():
         setattr(repo, key, value)
 
-    repo.updated_at = datetime.now(timezone.utc)
+    repo.updated_at = datetime.utcnow()
     session.add(repo)
     await session.commit()
     await session.refresh(repo)
@@ -125,7 +125,7 @@ async def update_repo_state(
         if hasattr(repo, key):
             setattr(repo, key, value)
 
-    repo.updated_at = datetime.now(timezone.utc)
+    repo.updated_at = datetime.utcnow()
     session.add(repo)
     await session.commit()
     await session.refresh(repo)

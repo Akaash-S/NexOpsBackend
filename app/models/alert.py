@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, String
-from app.models.common import utc_now
 
 
 class Alert(SQLModel, table=True):
@@ -36,5 +35,5 @@ class Alert(SQLModel, table=True):
     acknowledged: bool = Field(default=False)
 
     # Timestamps
-    created_at: datetime = Field(default_factory=utc_now, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
     last_updated_at: Optional[datetime] = Field(default=None, index=True)
