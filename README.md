@@ -17,32 +17,32 @@ The high-throughput, async Python backend for **NexOps** — powers real-time in
 ```mermaid
 graph TD
     subgraph External ["External Integrations"]
-        GH[GitHub Webhooks / VCS API]
-        PD[PagerDuty Webhooks]
+        GH["GitHub Webhooks / VCS API"]
+        PD["PagerDuty Webhooks"]
     end
 
     subgraph API_Layer ["API Layer (FastAPI)"]
-        API[FastAPI App :8000]
-        SEC[Security / RLS Context]
-        HMAC[HMAC-SHA256 Signature Validator]
-        LIM[SlowAPI Rate Limiter]
+        API["FastAPI App :8000"]
+        SEC["Security / RLS Context"]
+        HMAC["HMAC-SHA256 Signature Validator"]
+        LIM["SlowAPI Rate Limiter"]
     end
 
-    subgraph Storage ["State & Message Bus"]
-        PG[(PostgreSQL + Row Level Security)]
-        RDS[(Redis: Cache + Stream Bus)]
+    subgraph Storage ["State and Message Bus"]
+        PG[("PostgreSQL + Row Level Security")]
+        RDS[("Redis: Cache + Stream Bus")]
     end
 
     subgraph Worker_Layer ["Worker Engine"]
-        WKR[Stream Consumer Worker]
-        SYNC[GitHub Auto-Sync Loop (60s)]
-        DLQ[Dead-Letter Stream: nexops:events:dead]
+        WKR["Stream Consumer Worker"]
+        SYNC["GitHub Auto-Sync Loop (60s)"]
+        DLQ["Dead-Letter Stream: nexops:events:dead"]
     end
 
     subgraph Intelligence ["Correlation Engine"]
-        CORR[Candidate Cause Scorer]
-        RECAL[Weight Recalibration Engine]
-        POSTM[Postmortem Lifecycle Engine]
+        CORR["Candidate Cause Scorer"]
+        RECAL["Weight Recalibration Engine"]
+        POSTM["Postmortem Lifecycle Engine"]
     end
 
     GH -->|HMAC-SHA256| HMAC
@@ -73,7 +73,7 @@ sequenceDiagram
     participant VCS as GitHub / PagerDuty
     participant API as FastAPI Webhook Route
     participant DB as PostgreSQL (RLS)
-    participant Redis as Redis Stream (nexops:events)
+    participant Redis as Redis Stream Bus
     participant WKR as Background Worker
     participant CORR as Correlation Engine
 
@@ -83,7 +83,7 @@ sequenceDiagram
     API->>DB: Check Event Deduplication Window (30 min)
     API->>DB: INSERT INTO events (workspace_id, repo_id, ...)
     API->>Redis: XADD nexops:events (event_id, workspace_id)
-    API-->>VCS: HTTP 200 OK {"status": "processed", "event_id": "..."}
+    API-->>VCS: HTTP 200 OK (status: processed, event_id: ...)
     
     Note over Redis,WKR: Asynchronous Worker Processing
     Redis->>WKR: XREADGROUP nexops-workers
