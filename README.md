@@ -124,7 +124,7 @@ sequenceDiagram
 | **Database Tables** | 13 SQLModel models | Measured from `SQLModel.metadata.tables`: `alerts`, `candidate_cause_feedback_logs`, `candidate_causes`, `dependencies`, `deployments`, `events`, `incidents`, `postmortems`, `repos`, `scoring_weight_recalibrations`, `users`, `workspace_acknowledgments`, `workspaces` |
 | **Core Services** | 12 domain services | Measured in `app/services/`: `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
 | **Worker & Async Loops** | 3 worker loops + 1 WS listener | Measured in code: `stream_consumer.py` (`run_consumer` stream processing loop, `github_auto_sync_loop` VCS polling loop every 60s, `worker_heartbeat_loop` publishing heartbeat every 15s) + `start_ws_redis_listener` in `app/core/websocket.py` |
-| **Pytest Test Suite** | 70 test functions (13 files) | Measured via `pytest --collect-only -q`: 70 tests collected across 13 test files in `tests/` |
+| **Pytest Test Suite** | 74 test functions (14 files) | Measured via `pytest --collect-only -q`: 74 tests collected across 14 test files in `tests/` |
 | **Weight Recalibration** | Fully wired & tested | `< 20` samples returns defaults; `≥ 20` samples recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
 | **Worker Resilience** | Retries, DLQ & Idempotency | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication on `(workspace_id, repo_id)` |
 | **Mock Authentication** | Production Safe | Gated by `ALLOW_MOCK_AUTH` (default `False`), neutral dummy credentials (`usr-mock-dev-001`), hard startup refusal in production |
@@ -228,7 +228,7 @@ python -m app.worker.stream_consumer
 ### 6. Run the Test Suite & Load Benchmark
 
 ```bash
-# Run full automated test suite (61 tests)
+# Run full automated test suite (74 tests)
 pytest -v
 
 # Run local load benchmark (webhook ingestion + worker throughput)
@@ -278,7 +278,8 @@ python tests/load/load_test_webhooks.py
 │   ├── test_recalibration.py
 │   ├── test_repo_sync_dedup.py
 │   ├── test_repos_ownership.py
-│   └── test_sentry.py
+│   ├── test_sentry.py
+│   └── test_stream_worker_redis.py
 └── pytest.ini
 ```
 
