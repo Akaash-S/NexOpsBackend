@@ -15,7 +15,9 @@ scratch/*
 service-account.json
 docs/
 legacy_migrations/*
+backups/
 backups/*
+*.dump
 truncate_db.py
 scratch_real_token.txt
 test_venv/
