@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://skillicons.dev">
-    <img src="https://skillicons.dev/icons?i=py,fastapi,postgres,redis,docker,gcp,git,github,githubactions" alt="Backend Tech Stack Icons" />
+    <img src="https://skillicons.dev/icons?i=py,fastapi,postgres,redis,sentry,firebase,docker,gcp,git,github,githubactions" alt="Backend Tech Stack Icons" />
   </a>
 </p>
 
@@ -107,6 +107,8 @@ sequenceDiagram
 | **FastAPI** | Asynchronous REST API Framework | <img src="https://skillicons.dev/icons?i=fastapi" width="36" height="36" alt="FastAPI" /> |
 | **PostgreSQL & Neon** | Relational Database & Row-Level Security (RLS) | <img src="https://skillicons.dev/icons?i=postgres" width="36" height="36" alt="PostgreSQL" /> |
 | **Redis** | In-Memory Cache & Redis Streams Consumer | <img src="https://skillicons.dev/icons?i=redis" width="36" height="36" alt="Redis" /> |
+| **Sentry** | Application Monitoring & Rate-Limited Error Scrubbing | <img src="https://skillicons.dev/icons?i=sentry" width="36" height="36" alt="Sentry" /> |
+| **Firebase Auth** | Developer & User Authentication Token Verification | <img src="https://skillicons.dev/icons?i=firebase" width="36" height="36" alt="Firebase" /> |
 | **Docker** | Containerization & Local Development | <img src="https://skillicons.dev/icons?i=docker" width="36" height="36" alt="Docker" /> |
 | **Google Cloud Platform** | Compute Engine Background Worker Host | <img src="https://skillicons.dev/icons?i=gcp" width="36" height="36" alt="GCP" /> |
 | **GitHub Actions** | Automated CI/CD Pipelines & Webhooks | <img src="https://skillicons.dev/icons?i=githubactions" width="36" height="36" alt="GitHub Actions" /> |
@@ -118,11 +120,11 @@ sequenceDiagram
 
 | Dimension | Count / Status | Verification Evidence |
 | :--- | :--- | :--- |
-| **API Endpoints** | 66 API endpoints (56 unique routes) | Inspected across 13 FastAPI router files under `app/api/routes/` plus root health endpoints in `app/main.py` (70 total route handlers including OpenAPI/docs) |
-| **Database Tables** | 13 SQLModel models | `users`, `workspaces`, `repos`, `clusters`, `events`, `alerts`, `deployments`, `incidents`, `candidate_causes`, `postmortems`, `dependencies`, `alert_rules`, `scoring_weight_recalibrations` |
-| **Core Services** | 12 domain services | `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
-| **Worker Loops** | 2 continuous loops | `stream_consumer.py` (Redis Streams consumer group `nexops-workers`) + GitHub background auto-sync polling loop (every 60s) |
-| **Pytest Test Suite** | 61 passed / 0 failed (100%) | `test_venv/Scripts/python -m pytest` across 14 test files in `tests/` |
+| **API Endpoints** | 66 REST operations + 1 WebSocket route | Measured via `app.openapi()` and `app.routes`: 56 unique URL paths with 66 REST operations across 13 router modules in `app/api/routes/` and health/root endpoints in `app/main.py`, plus 1 WebSocket route (`/ws`). Excluding doc endpoints: 64 core endpoints; 71 total Starlette routes including 3 OpenAPI/doc endpoints and 1 OAuth redirect. |
+| **Database Tables** | 13 SQLModel models | Measured from `SQLModel.metadata.tables`: `alerts`, `candidate_cause_feedback_logs`, `candidate_causes`, `dependencies`, `deployments`, `events`, `incidents`, `postmortems`, `repos`, `scoring_weight_recalibrations`, `users`, `workspace_acknowledgments`, `workspaces` |
+| **Core Services** | 12 domain services | Measured in `app/services/`: `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
+| **Worker & Async Loops** | 3 worker loops + 1 WS listener | Measured in code: `stream_consumer.py` (`run_consumer` stream processing loop, `github_auto_sync_loop` VCS polling loop every 60s, `worker_heartbeat_loop` publishing heartbeat every 15s) + `start_ws_redis_listener` in `app/core/websocket.py` |
+| **Pytest Test Suite** | 70 test functions (13 files) | Measured via `pytest --collect-only -q`: 70 tests collected across 13 test files in `tests/` |
 | **Weight Recalibration** | Fully wired & tested | `< 20` samples returns defaults; `≥ 20` samples recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
 | **Worker Resilience** | Retries, DLQ & Idempotency | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication on `(workspace_id, repo_id)` |
 | **Mock Authentication** | Production Safe | Gated by `ALLOW_MOCK_AUTH` (default `False`), neutral dummy credentials (`usr-mock-dev-001`), hard startup refusal in production |
@@ -193,7 +195,7 @@ DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/nexops_dev
 REDIS_URL=redis://localhost:6379
 REDIS_MAX_CONNECTIONS=50
 CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
-ENCRYPTION_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+ENCRYPTION_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE= # dummy value, do not reuse
 GITHUB_WEBHOOK_SECRET=demo_github_secret
 PAGERDUTY_WEBHOOK_SECRET=demo_pagerduty_secret
 ```

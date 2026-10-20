@@ -67,7 +67,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio pytest-cov
 
       - name: Verify Ephemeral Localhost Isolation
         run: |
@@ -92,13 +92,15 @@ jobs:
         run: |
           alembic -x target=local upgrade head
 
-      - name: Run Full Test Suite
+      - name: Run Full Test Suite with Coverage
         run: |
-          pytest -v --tb=short 2>&1 | tee pytest-output.log
+          pytest -v --cov=app --cov-report=term --cov-report=xml --tb=short 2>&1 | tee pytest-output.log
 
-      - name: Upload Test Output Log
+      - name: Upload Test Output & Coverage Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-results
-          path: pytest-output.log
+          name: pytest-and-coverage-results
+          path: |
+            pytest-output.log
+            coverage.xml
