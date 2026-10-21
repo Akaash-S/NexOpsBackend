@@ -120,13 +120,14 @@ sequenceDiagram
 
 | Dimension | Count / Status | Verification Evidence |
 | :--- | :--- | :--- |
-| **API Endpoints** | 66 REST operations + 1 WebSocket route | Measured via `app.openapi()` and `app.routes`: 56 unique URL paths with 66 REST operations across 13 router modules in `app/api/routes/` and health/root endpoints in `app/main.py`, plus 1 WebSocket route (`/ws`). Excluding doc endpoints: 64 core endpoints; 71 total Starlette routes including 3 OpenAPI/doc endpoints and 1 OAuth redirect. |
+| **API Endpoints** | 66 REST operations + 1 WebSocket route | Measured via `app.openapi()` and `app.routes`: 56 unique paths with 66 REST operations across 13 router modules in `app/api/routes/` and root endpoints in `app/main.py`, plus 1 WebSocket route (`/ws`). |
 | **Database Tables** | 13 SQLModel models | Measured from `SQLModel.metadata.tables`: `alerts`, `candidate_cause_feedback_logs`, `candidate_causes`, `dependencies`, `deployments`, `events`, `incidents`, `postmortems`, `repos`, `scoring_weight_recalibrations`, `users`, `workspace_acknowledgments`, `workspaces` |
 | **Core Services** | 12 domain services | Measured in `app/services/`: `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
 | **Worker & Async Loops** | 3 worker loops + 1 WS listener | Measured in code: `stream_consumer.py` (`run_consumer` stream processing loop, `github_auto_sync_loop` VCS polling loop every 60s, `worker_heartbeat_loop` publishing heartbeat every 15s) + `start_ws_redis_listener` in `app/core/websocket.py` |
 | **Pytest Test Suite** | 74 test functions (14 files) | Measured via `pytest --collect-only -q`: 74 tests collected across 14 test files in `tests/` |
 | **Weight Recalibration** | Fully wired & tested | `< 20` samples returns defaults; `≥ 20` samples recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
-| **Worker Resilience** | Retries, DLQ & Idempotency | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication on `(workspace_id, repo_id)` |
+| **Worker Resilience & Idempotency** | Retries, DLQ & 10-Replay Idempotent | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication; sequentially replaying an event $N=10$ times creates exactly 1 incident with 0 duplicate alerts (`tests/test_event_idempotency.py::test_sequential_event_replay_idempotency`) |
+| **Deep Health Failure Isolation** | HTTP 503 on Dependency Failure | Protected deep health check `/health/detailed` returns HTTP 503 Service Unavailable when a dependency fails and leaves zero canary residue in the database (`tests/test_health_deep.py::test_protected_health_detailed_forced_failure_and_residue_check`) |
 | **Mock Authentication** | Production Safe | Gated by `ALLOW_MOCK_AUTH` (default `False`), neutral dummy credentials (`usr-mock-dev-001`), hard startup refusal in production |
 
 ---
