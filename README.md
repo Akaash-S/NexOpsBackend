@@ -110,7 +110,7 @@ sequenceDiagram
 | **Sentry** | Application Monitoring & Rate-Limited Error Scrubbing | <img src="https://skillicons.dev/icons?i=sentry" width="36" height="36" alt="Sentry" /> |
 | **Firebase Auth** | Developer & User Authentication Token Verification | <img src="https://skillicons.dev/icons?i=firebase" width="36" height="36" alt="Firebase" /> |
 | **Docker** | Containerization & Local Development | <img src="https://skillicons.dev/icons?i=docker" width="36" height="36" alt="Docker" /> |
-| **Google Cloud Platform** | Compute Engine Background Worker Host | <img src="https://skillicons.dev/icons?i=gcp" width="36" height="36" alt="GCP" /> |
+| **Google Cloud Platform & Render** | Web API Host (Render `render.yaml`) & Background Worker VM (GCP Compute Engine systemd) | <img src="https://skillicons.dev/icons?i=gcp" width="36" height="36" alt="GCP" /> |
 | **GitHub Actions** | Automated CI/CD Pipelines & Webhooks | <img src="https://skillicons.dev/icons?i=githubactions" width="36" height="36" alt="GitHub Actions" /> |
 | **Git & GitHub** | Source Control & Versioning | <img src="https://skillicons.dev/icons?i=git,github" height="36" alt="Git & GitHub" /> |
 
@@ -123,10 +123,10 @@ sequenceDiagram
 | **API Endpoints** | 66 REST operations + 1 WebSocket route | Measured via `app.openapi()` and `app.routes`: 56 unique paths with 66 REST operations across 13 router modules in `app/api/routes/` and root endpoints in `app/main.py`, plus 1 WebSocket route (`/ws`). |
 | **Database Tables** | 13 SQLModel models | Measured from `SQLModel.metadata.tables`: `alerts`, `candidate_cause_feedback_logs`, `candidate_causes`, `dependencies`, `deployments`, `events`, `incidents`, `postmortems`, `repos`, `scoring_weight_recalibrations`, `users`, `workspace_acknowledgments`, `workspaces` |
 | **Core Services** | 12 domain services | Measured in `app/services/`: `alert_service`, `automation_service`, `email_service`, `event_service`, `impact_service`, `incident_service`, `insight_service`, `pagerduty_service`, `queue_service`, `recalibration_service`, `repo_service`, `vcs_service` |
-| **Worker & Async Loops** | 3 worker loops + 1 WS listener | Measured in code: `stream_consumer.py` (`run_consumer` stream processing loop, `github_auto_sync_loop` VCS polling loop every 60s, `worker_heartbeat_loop` publishing heartbeat every 15s) + `start_ws_redis_listener` in `app/core/websocket.py` |
+| **Worker & Async Loops** | 3 worker loops + 1 WS listener | Measured in `app/worker/stream_consumer.py`: `run_consumer` (Redis stream processing loop with `SIGINT`/`SIGTERM` signal handling and graceful shutdown via `asyncio.Event`), `github_auto_sync_loop` (VCS polling every 60s), `worker_heartbeat_loop` (heartbeat publishing every 15s) + `start_ws_redis_listener` in `app/core/websocket.py` |
 | **Pytest Test Suite** | 74 test functions (14 files) | Measured via `pytest --collect-only -q`: 74 tests collected across 14 test files in `tests/` |
-| **Weight Recalibration** | Fully wired & tested | `< 20` samples returns defaults; `≥ 20` samples recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
-| **Worker Resilience & Idempotency** | Retries, DLQ & 10-Replay Idempotent | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication; sequentially replaying an event $N=10$ times creates exactly 1 incident with 0 duplicate alerts (`tests/test_event_idempotency.py::test_sequential_event_replay_idempotency`) |
+| **Weight Recalibration** | On-Demand Endpoint Only | Triggered on-demand via `POST /api/v1/analytics/recalibrate` (requires $\ge 20$ user feedback entries; no automated cron or threshold trigger exists in code); recalculates win rates bounded $[0.5\times, 1.5\times]$ and persists weights (`tests/test_recalibration.py`) |
+| **Worker Resilience & Idempotency** | Retries, DLQ & 10-Replay Idempotent | Max 3 retries, dead-letter routing to `nexops:events:dead`, transaction advisory lock deduplication; replaying the same event $N=10$ times sequentially (`tests/test_event_idempotency.py::test_sequential_event_replay_idempotency`) or concurrently via `asyncio.gather` (`tests/test_event_idempotency.py::test_concurrent_event_replay_idempotency`) creates exactly 1 incident with 0 duplicate alerts |
 | **Deep Health Failure Isolation** | HTTP 503 on Dependency Failure | Protected deep health check `/health/detailed` returns HTTP 503 Service Unavailable when a dependency fails and leaves zero canary residue in the database (`tests/test_health_deep.py::test_protected_health_detailed_forced_failure_and_residue_check`) |
 | **Mock Authentication** | Production Safe | Gated by `ALLOW_MOCK_AUTH` (default `False`), neutral dummy credentials (`usr-mock-dev-001`), hard startup refusal in production |
 
@@ -286,10 +286,17 @@ python tests/load/load_test_webhooks.py
 
 ---
 
-## 🛠️ Production Commands (GCP Compute Engine)
+## 🛠️ Deployment Configuration (provided, not guaranteed running)
+
+The repository provides production deployment configuration templates for two hosting environments:
+- **FastAPI Web Service**: Configured for **Render** via [`render.yaml`](render.yaml) (Docker runtime, health check at `/api/v1/health`).
+- **Stream Consumer Worker**: Configured for a dedicated Linux VM (such as **GCP Compute Engine**) managed via systemd using [`scripts/nexops-worker.service`](scripts/nexops-worker.service).
+- **Container Infrastructure**: [`Dockerfile`](Dockerfile) and [`docker-compose.yml`](docker-compose.yml) are provided for containerized builds and local orchestration.
+
+The operational commands below apply once a worker VM is provisioned and the systemd unit is installed:
 
 ```bash
-# Restart background worker service on GCP VM
+# Restart background worker service on provisioned worker VM
 sudo systemctl restart nexops-worker
 
 # Check worker service status
@@ -298,3 +305,4 @@ sudo systemctl status nexops-worker
 # View live worker logs
 sudo journalctl -u nexops-worker -f -n 50
 ```
+
