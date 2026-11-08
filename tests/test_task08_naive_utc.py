@@ -306,3 +306,109 @@ async def test_guard_d_real_webhooks_end_to_end():
         await session.execute(text("DELETE FROM users WHERE workspace_id = :ws"), {"ws": ws_id})
         await session.execute(text("DELETE FROM workspaces WHERE id = :ws"), {"ws": ws_id})
         await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# BaseTable Session Lifecycle: refresh, merge, and attribute loading
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_base_table_refresh_merge_lifecycle():
+    """Verify session.refresh() and session.merge() work on at least two model classes (Workspace, Repo)
+    and that BaseTable.__setattr__ does not alter non-datetime types or corrupt ORM state.
+    """
+    uid = uuid.uuid4().hex[:8]
+    ws_id = f"ws-bm-{uid}"
+    user_id = f"usr-bm-{uid}"
+    repo_id = f"repo-bm-{uid}"
+
+    async with async_session() as session:
+        # 1. Model Class 1: Workspace
+        ws = Workspace(id=ws_id, name="Original WS", description="Initial description", color="red")
+        session.add(ws)
+        await session.commit()
+
+        # Update in database behind the session's back to test session.refresh()
+        await session.execute(
+            text("UPDATE workspaces SET description = 'Refreshed description' WHERE id = :id"),
+            {"id": ws_id}
+        )
+        await session.commit()
+
+        # Execute session.refresh()
+        await session.refresh(ws)
+        assert ws.description == "Refreshed description", "session.refresh failed to update description"
+        assert ws.name == "Original WS"
+        assert ws.color == "red"
+        assert ws.created_at.tzinfo is None, "created_at must be naive after refresh"
+        assert ws.updated_at.tzinfo is None, "updated_at must be naive after refresh"
+
+        # Test session.merge() with detached Workspace instance having aware datetime
+        aware_dt = datetime.now(timezone.utc)
+        detached_ws = Workspace(
+            id=ws_id,
+            name="Merged WS",
+            description="Merged description",
+            color="purple",
+            updated_at=aware_dt
+        )
+        merged_ws = await session.merge(detached_ws)
+        await session.commit()
+
+        assert merged_ws.name == "Merged WS"
+        assert merged_ws.description == "Merged description"
+        assert merged_ws.color == "purple"
+        assert merged_ws.updated_at.tzinfo is None, "updated_at must be normalized to naive UTC after merge"
+
+        # 2. Model Class 2: Repo (with foreign key to Workspace)
+        user = User(id=user_id, email=f"{user_id}@test.com", full_name="BM User", workspace_id=ws_id, role="admin")
+        session.add(user)
+        await session.flush()
+        repo = Repo(
+            id=repo_id,
+            name=f"test-repo-{uid}",
+            owner="acme",
+            workspace_id=ws_id,
+            user_id=user_id,
+            platform="github",
+            activity=55.5
+        )
+        session.add(repo)
+        await session.commit()
+
+        # Test session.refresh() on Repo
+        await session.execute(
+            text("UPDATE repos SET activity = 88.0 WHERE id = :id"),
+            {"id": repo_id}
+        )
+        await session.commit()
+
+        await session.refresh(repo)
+        assert repo.activity == 88.0, "session.refresh failed to update activity"
+        assert repo.name == f"test-repo-{uid}"
+        assert repo.created_at.tzinfo is None
+        assert repo.updated_at.tzinfo is None
+
+        # Test session.merge() on Repo with updated attributes
+        detached_repo = Repo(
+            id=repo_id,
+            name=f"test-repo-{uid}-merged",
+            owner="acme",
+            workspace_id=ws_id,
+            user_id=user_id,
+            platform="github",
+            activity=95.0,
+            last_commit_at=aware_dt
+        )
+        merged_repo = await session.merge(detached_repo)
+        await session.commit()
+
+        assert merged_repo.name == f"test-repo-{uid}-merged"
+        assert merged_repo.activity == 95.0
+        assert merged_repo.last_commit_at.tzinfo is None, "last_commit_at must be normalized to naive UTC"
+
+        # Cleanup
+        await session.execute(text("DELETE FROM repos WHERE workspace_id = :ws"), {"ws": ws_id})
+        await session.execute(text("DELETE FROM users WHERE workspace_id = :ws"), {"ws": ws_id})
+        await session.execute(text("DELETE FROM workspaces WHERE id = :ws"), {"ws": ws_id})
+        await session.commit()
+
