@@ -4,6 +4,7 @@ Business logic for repository CRUD and state management.
 """
 
 from datetime import datetime, timezone
+from app.models.common import utc_now, to_naive_utc
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,9 +103,11 @@ async def update_repo(
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if isinstance(value, datetime):
+            value = to_naive_utc(value)
         setattr(repo, key, value)
 
-    repo.updated_at = datetime.now(timezone.utc)
+    repo.updated_at = utc_now()
     session.add(repo)
     await session.commit()
     await session.refresh(repo)
@@ -123,9 +126,11 @@ async def update_repo_state(
 
     for key, value in kwargs.items():
         if hasattr(repo, key):
+            if isinstance(value, datetime):
+                value = to_naive_utc(value)
             setattr(repo, key, value)
 
-    repo.updated_at = datetime.now(timezone.utc)
+    repo.updated_at = utc_now()
     session.add(repo)
     await session.commit()
     await session.refresh(repo)

@@ -7,12 +7,12 @@ Represents actionable notifications for the operations team.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, String
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class Alert(SQLModel, table=True):
+class Alert(BaseTable, table=True):
     __tablename__ = "alerts"
 
     id: str = Field(

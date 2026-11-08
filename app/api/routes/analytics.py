@@ -145,7 +145,8 @@ async def get_activity_data(
         return ActivityResponse(**cached)
 
     from datetime import timedelta
-    now = datetime.now(timezone.utc)
+    from app.models.common import utc_now
+    now = utc_now()
     seven_days_ago = now - timedelta(days=6) # 7 days including today
 
     # Fetch events from the last 7 days scoped to workspace_id

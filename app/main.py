@@ -259,7 +259,8 @@ async def websocket_endpoint(
 
 
 from datetime import datetime, timezone
-START_TIME = datetime.now(timezone.utc)
+from app.models.common import utc_now, to_naive_utc
+START_TIME = utc_now()
 
 
 @app.get("/health", tags=["System"])
@@ -365,8 +366,9 @@ async def health_check_detailed(
     from app.core.redis import redis_client as _redis
     from app.models.event import Event
     from app.models.alert import Alert
+    from app.models.common import utc_now, to_naive_utc
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = utc_now()
     uptime_seconds = round((now_utc - START_TIME).total_seconds(), 2)
 
     checks = {}

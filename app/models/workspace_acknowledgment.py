@@ -6,11 +6,11 @@ Records workspace acceptance of Terms of Service and Privacy Notice before conne
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 
 
-class WorkspaceAcknowledgment(SQLModel, table=True):
+class WorkspaceAcknowledgment(BaseTable, table=True):
     __tablename__ = "workspace_acknowledgments"
 
     id: str = Field(

@@ -6,11 +6,11 @@ Tracks specific software releases across different environments.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 
 
-class Deployment(SQLModel, table=True):
+class Deployment(BaseTable, table=True):
     __tablename__ = "deployments"
 
     id: str = Field(

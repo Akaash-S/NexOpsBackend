@@ -5,11 +5,11 @@ Stores auditable history of correlation scoring weight recalibrations per worksp
 
 import uuid
 from datetime import datetime
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 
 
-class ScoringWeightRecalibration(SQLModel, table=True):
+class ScoringWeightRecalibration(BaseTable, table=True):
     __tablename__ = "scoring_weight_recalibrations"
 
     id: str = Field(

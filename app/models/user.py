@@ -6,12 +6,12 @@ Basic user representation for account and ownership tracking.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, JSON
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class User(SQLModel, table=True):
+class User(BaseTable, table=True):
     __tablename__ = "users"
 
     id: str = Field(
