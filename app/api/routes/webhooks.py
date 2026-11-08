@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import logging
 from datetime import datetime, timezone
+from app.models.common import utc_now
 from typing import Optional
 
 from app.core.database import get_session
@@ -212,7 +213,7 @@ async def github_webhook_handler(
         message = f"Push detected on {ref} by {payload.get('pusher', {}).get('name')}"
 
         # Update repo last commit
-        repo.last_commit_at = datetime.now(timezone.utc)
+        repo.last_commit_at = utc_now()
         session.add(repo)
 
     elif x_github_event == "pull_request":
@@ -232,7 +233,7 @@ async def github_webhook_handler(
             if repo:
                 logger.info(f"GitHub repository deleted event received for {full_name} — marking repo as disconnected and preserving historical records")
                 repo.status = "disconnected"
-                repo.updated_at = datetime.now(timezone.utc)
+                repo.updated_at = utc_now()
                 session.add(repo)
 
                 disconnect_event = Event(
@@ -313,7 +314,7 @@ async def github_webhook_handler(
         deploy_result = await session.execute(deploy_query)
         db_deployment = deploy_result.scalars().first()
         
-        now = datetime.now(timezone.utc)
+        now = utc_now()
         if db_deployment:
             db_deployment.status = status
             db_deployment.finished_at = now if status in ("success", "failed") else None
@@ -505,7 +506,7 @@ async def pagerduty_webhook_handler(
             new_status = "investigating" if event_type == "incident.acknowledged" else "resolved"
             matched_incident.status = new_status
             if new_status == "resolved":
-                matched_incident.resolved_at = datetime.now(timezone.utc)
+                matched_incident.resolved_at = utc_now()
             session.add(matched_incident)
             await session.commit()  # type: ignore
             logger.info(f"Updated incident {matched_incident.id} status to {new_status} "

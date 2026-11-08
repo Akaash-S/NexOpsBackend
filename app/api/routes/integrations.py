@@ -15,6 +15,7 @@ from app.models.event import Event
 from app.models.workspace_acknowledgment import WorkspaceAcknowledgment
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+from app.models.common import utc_now, to_naive_utc
 import httpx
 import logging
 import hmac
@@ -197,7 +198,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                 repo.last_commit_at = repo_data.last_commit_at
                 repo.github_updated_at = repo_data.github_updated_at
                 repo.activity = repo_data.activity
-                repo.updated_at = datetime.now(timezone.utc)
+                repo.updated_at = utc_now()
             else:
                 # Create new repo
                 repo = repo_data
@@ -215,7 +216,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     source=request.provider,
                     message=f"Repository {repo.name} added to NexOps via {request.provider} sync",
                     severity="info",
-                    created_at=datetime.now(timezone.utc)
+                    created_at=utc_now()
                 )
                 session.add(sync_event)
 
@@ -244,7 +245,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     if db_repo.status != "disconnected":
                         logger.info(f"Marking deleted/unlinked repository as disconnected in NexOps: {db_repo.name} (id: {db_repo.id})")
                         db_repo.status = "disconnected"
-                        db_repo.updated_at = datetime.now(timezone.utc)
+                        db_repo.updated_at = utc_now()
                         session.add(db_repo)
                         
                         disconnect_event = Event(
@@ -254,7 +255,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                             source=request.provider,
                             message=f"Repository {db_repo.name} was deleted or unlinked on {request.provider}. Marked as disconnected; historical data preserved.",
                             severity="warning",
-                            created_at=datetime.now(timezone.utc)
+                            created_at=utc_now()
                         )
                         session.add(disconnect_event)
         else:
@@ -393,12 +394,12 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     
                     risk_calc = await calculate_deployment_risk(session, repo.id)
                     
-                    now = datetime.now(timezone.utc)
+                    now = utc_now()
                     gh_created_at = dep_item.get("created_at")
                     dep_timestamp = now
                     if gh_created_at:
                         try:
-                            dep_timestamp = datetime.fromisoformat(gh_created_at.replace("Z", "+00:00"))
+                            dep_timestamp = to_naive_utc(datetime.fromisoformat(gh_created_at.replace("Z", "+00:00")))
                             if dep_timestamp.tzinfo is None:
                                 dep_timestamp = dep_timestamp.replace(tzinfo=timezone.utc)
                         except Exception:
@@ -442,7 +443,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         # Stamp the successful sync time on the user record
         db_user = await session.get(User, user.id)
         if db_user:
-            db_user.github_last_synced_at = datetime.now(timezone.utc)
+            db_user.github_last_synced_at = utc_now()
             session.add(db_user)
             await invalidate_user_cache(user.id)
 
@@ -702,7 +703,7 @@ async def acknowledge_terms(
             workspace_id=user.workspace_id,
             user_id=user.id,
             terms_version="v1.0",
-            acknowledged_at=datetime.now(timezone.utc)
+            acknowledged_at=utc_now()
         )
         session.add(ack)
         await session.commit()

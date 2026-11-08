@@ -6,12 +6,12 @@ Represents a source code repository tracked by NexOps.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 from sqlalchemy import Column, String
 
 
-class Repo(SQLModel, table=True):
+class Repo(BaseTable, table=True):
     __tablename__ = "repos"
     
     class Config:

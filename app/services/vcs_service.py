@@ -4,6 +4,7 @@ from app.models.repo import Repo
 import uuid
 import logging
 from datetime import datetime, timezone
+from app.models.common import utc_now, to_naive_utc
 
 logger = logging.getLogger("nexops.vcs")
 
@@ -253,8 +254,8 @@ class VCService:
                 language=raw.get("language") or raw.get("programming_language"),
                 default_branch=raw.get("default_branch") or "main",
                 owner=raw.get("owner", {}).get("login") if provider == "github" else None,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
+                created_at=utc_now(),
+                updated_at=utc_now()
             )
 
             if provider == "github":
@@ -264,20 +265,20 @@ class VCService:
                 pushed = raw.get("pushed_at")
                 if pushed:
                     try:
-                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+                        repo.last_commit_at = to_naive_utc(datetime.fromisoformat(pushed.replace("Z", "+00:00")))
                     except (ValueError, AttributeError):
                         pass
                 gh_updated = raw.get("updated_at")
                 if gh_updated:
                     try:
-                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
+                        repo.github_updated_at = to_naive_utc(datetime.fromisoformat(gh_updated.replace("Z", "+00:00")))
                     except (ValueError, AttributeError):
                         pass
 
             # Calculate real activity score based on push/commit recency
             target_dt = repo.last_commit_at or repo.github_updated_at
             if target_dt:
-                now = datetime.now(timezone.utc)
+                now = utc_now()
                 diff_days = (now - target_dt).total_seconds() / 86400.0
                 if diff_days <= 1.0:
                     repo.activity = 98.0

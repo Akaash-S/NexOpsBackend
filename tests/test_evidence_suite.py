@@ -38,6 +38,15 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def clean_dependency_overrides():
+    """Ensure app.dependency_overrides is always cleared, even if test setup fails."""
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+
+
 @pytest.mark.asyncio
 async def test_1_rls_bypass_exception_safety():
     """Assertion 1: Verify rls_bypass guarantees reset of nexops.bypass_rls even on exception."""

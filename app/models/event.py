@@ -7,12 +7,12 @@ Every state change in the system originates from an Event.
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, JSON, String, Index, text
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class Event(SQLModel, table=True):
+class Event(BaseTable, table=True):
     __tablename__ = "events"
 
     id: str = Field(

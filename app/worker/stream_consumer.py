@@ -237,6 +237,7 @@ async def github_auto_sync_loop():
         await asyncio.sleep(60)
 
 from datetime import datetime, timezone
+from app.models.common import utc_now
 import signal
 
 async def worker_heartbeat_loop():
@@ -245,7 +246,7 @@ async def worker_heartbeat_loop():
     while True:
         try:
             if redis_client:
-                now_iso = datetime.now(timezone.utc).isoformat()
+                now_iso = utc_now().isoformat()
                 # Keep heartbeat valid for 45 seconds (3x interval)
                 await redis_client.set("nexops:worker:heartbeat", now_iso, ex=45)
         except asyncio.CancelledError:

@@ -185,6 +185,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     Reuses the exact weights from correlate_incident_causes() based on active/recent incident history.
     """
     from datetime import datetime, timedelta, timezone
+    from app.models.common import utc_now
     from app.models.incident import Incident
     from app.models.candidate_cause import CandidateCause
     
@@ -192,7 +193,7 @@ async def calculate_deployment_risk(session: AsyncSession, repo_id: str) -> dict
     downstream_repos = await get_downstream_repos(session, repo_id)
     
     # 2. Check conditions
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     seven_days_ago = now - timedelta(days=7)
     ninety_days_ago = now - timedelta(days=90)
     

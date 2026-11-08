@@ -7,12 +7,12 @@ One postmortem per incident. Fields are editable and auto-saved.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, Text
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class Postmortem(SQLModel, table=True):
+class Postmortem(BaseTable, table=True):
     __tablename__ = "postmortems"
 
     id: str = Field(
