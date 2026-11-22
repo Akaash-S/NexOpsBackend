@@ -393,14 +393,13 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     
                     risk_calc = await calculate_deployment_risk(session, repo.id)
                     
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
                     gh_created_at = dep_item.get("created_at")
                     dep_timestamp = now
                     if gh_created_at:
                         try:
-                            dep_timestamp = datetime.fromisoformat(gh_created_at.replace("Z", "+00:00"))
-                            if dep_timestamp.tzinfo is None:
-                                dep_timestamp = dep_timestamp.replace(tzinfo=timezone.utc)
+                            parsed_dt = datetime.fromisoformat(gh_created_at.replace("Z", "+00:00"))
+                            dep_timestamp = parsed_dt.astimezone(timezone.utc).replace(tzinfo=None)
                         except Exception:
                             dep_timestamp = now
 
@@ -442,7 +441,7 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
         # Stamp the successful sync time on the user record
         db_user = await session.get(User, user.id)
         if db_user:
-            db_user.github_last_synced_at = datetime.now(timezone.utc)
+            db_user.github_last_synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
             session.add(db_user)
             await invalidate_user_cache(user.id)
 

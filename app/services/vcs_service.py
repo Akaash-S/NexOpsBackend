@@ -264,20 +264,22 @@ class VCService:
                 pushed = raw.get("pushed_at")
                 if pushed:
                     try:
-                        repo.last_commit_at = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+                        pushed_dt = datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+                        repo.last_commit_at = pushed_dt.astimezone(timezone.utc).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         pass
                 gh_updated = raw.get("updated_at")
                 if gh_updated:
                     try:
-                        repo.github_updated_at = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
+                        gh_updated_dt = datetime.fromisoformat(gh_updated.replace("Z", "+00:00"))
+                        repo.github_updated_at = gh_updated_dt.astimezone(timezone.utc).replace(tzinfo=None)
                     except (ValueError, AttributeError):
                         pass
 
             # Calculate real activity score based on push/commit recency
             target_dt = repo.last_commit_at or repo.github_updated_at
             if target_dt:
-                now = datetime.now(timezone.utc)
+                now = datetime.utcnow()
                 diff_days = (now - target_dt).total_seconds() / 86400.0
                 if diff_days <= 1.0:
                     repo.activity = 98.0
