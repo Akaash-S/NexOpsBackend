@@ -7,6 +7,7 @@ import logging
 import json
 import hashlib
 from datetime import datetime, timedelta, timezone
+from app.models.common import utc_now, to_naive_utc
 from typing import Optional, List
 from sqlmodel import select
 from sqlalchemy import text
@@ -37,11 +38,12 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
     candidate_repo_ids = {repo_id} | set(upstream_map.keys())
     
     # 2. Query events in the 2-hour window before incident start
-    two_hours_ago = incident.created_at - timedelta(hours=2)
+    inc_created = to_naive_utc(incident.created_at)
+    two_hours_ago = inc_created - timedelta(hours=2)
     event_query = select(Event).where(
         Event.repo_id.in_(list(candidate_repo_ids)),
         Event.created_at >= two_hours_ago,
-        Event.created_at <= incident.created_at
+        Event.created_at <= inc_created
     )
     event_result = await session.execute(event_query)
     events = event_result.scalars().all()
@@ -53,7 +55,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
 
     # 3. For each event, calculate point score
     scored_candidates = []
-    ninety_days_ago = incident.created_at - timedelta(days=90)
+    ninety_days_ago = inc_created - timedelta(days=90)
     
     for event in events:
         score = 0.0
@@ -87,7 +89,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
                 reasons.append(f"Changed a service three steps upstream of the alerting service (via {path_str}).")
 
         # Temporal proximity with real computed minutes
-        time_diff = (incident.created_at - event.created_at).total_seconds()
+        time_diff = (to_naive_utc(incident.created_at) - to_naive_utc(event.created_at)).total_seconds()
         mins_diff = max(1, int(time_diff / 60))
         mins_unit = "minute" if mins_diff == 1 else "minutes"
         if time_diff <= 900:  # 15 minutes
@@ -169,7 +171,7 @@ async def correlate_incident_causes(session: AsyncSession, incident: Incident):
         if db_cand:
             db_cand.score = cand["score"]
             db_cand.reason = cand["reason"]
-            db_cand.updated_at = datetime.now(timezone.utc)
+            db_cand.updated_at = utc_now()
             session.add(db_cand)
         else:
             db_cand = CandidateCause(
@@ -211,7 +213,7 @@ async def get_or_create_incident(
     )
 
     # Check for existing open incident for this repository
-    thirty_mins_ago = datetime.now(timezone.utc) - timedelta(minutes=30)
+    thirty_mins_ago = utc_now() - timedelta(minutes=30)
     query = select(Incident).where(
         Incident.root_cause_repo_id == repo_id,
         Incident.status == "open",
@@ -245,7 +247,7 @@ async def get_or_create_incident(
         affected_users=calculated_affected_users,
         pd_incident_id=pd_incident_id,
         workspace_id=workspace_id,
-        started_at=datetime.now(timezone.utc)
+        started_at=utc_now()
     )
     session.add(new_incident)
     await session.flush()
@@ -263,7 +265,7 @@ async def resolve_incident(session: AsyncSession, incident_id: str):
         return
     
     incident.status = "resolved"
-    incident.resolved_at = datetime.now(timezone.utc)
+    incident.resolved_at = utc_now()
     session.add(incident)
     
     await session.commit()

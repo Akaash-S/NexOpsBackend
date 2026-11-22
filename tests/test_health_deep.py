@@ -378,8 +378,9 @@ async def test_events_alerts_date_query_exact_service_shape():
     from sqlmodel import select
     from app.models.event import Event
     from app.models.alert import Alert
+    from app.models.common import utc_now
 
-    now_utc = datetime.now(timezone.utc)
+    now_utc = utc_now()
     seven_days_ago = now_utc - timedelta(days=7)
 
     async with async_session() as session:

@@ -7,12 +7,12 @@ Tracks the lifecycle from discovery to resolution.
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, JSON
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class Incident(SQLModel, table=True):
+class Incident(BaseTable, table=True):
     __tablename__ = "incidents"
 
     id: str = Field(

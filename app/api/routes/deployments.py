@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from typing import List, Optional
 from datetime import datetime, timezone
+from app.models.common import utc_now
 
 from app.core.database import get_session
 from app.core.security import get_current_user
@@ -69,9 +70,9 @@ async def trigger_deployment(
         risk_score=risk_score,
         risk_basis=risk_basis,
         workspace_id=user.workspace_id,
-        deployed_at=datetime.now(timezone.utc),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        deployed_at=utc_now(),
+        created_at=utc_now(),
+        updated_at=utc_now()
     )
     session.add(deployment)
     await session.flush()

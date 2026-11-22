@@ -6,12 +6,12 @@ Represents a potential root cause (event/commit/deployment) scored for an incide
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import UniqueConstraint, CheckConstraint
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class CandidateCause(SQLModel, table=True):
+class CandidateCause(BaseTable, table=True):
     __tablename__ = "candidate_causes"
 
     id: str = Field(

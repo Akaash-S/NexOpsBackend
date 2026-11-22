@@ -6,11 +6,11 @@ Immutable append-only ledger recording every confirm/reject decision.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 
 
-class CandidateCauseFeedbackLog(SQLModel, table=True):
+class CandidateCauseFeedbackLog(BaseTable, table=True):
     __tablename__ = "candidate_cause_feedback_logs"
 
     id: str = Field(

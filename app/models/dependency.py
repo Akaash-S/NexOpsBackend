@@ -7,12 +7,12 @@ source_repo_id → target_repo_id means source depends on target.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import Column, String
-from app.models.common import utc_now
+from app.models.common import utc_now, BaseTable
 
 
-class Dependency(SQLModel, table=True):
+class Dependency(BaseTable, table=True):
     __tablename__ = "dependencies"
 
     id: str = Field(

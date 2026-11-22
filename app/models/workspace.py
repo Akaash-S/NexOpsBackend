@@ -6,11 +6,11 @@ Represents a first-class tenant workspace in NexOps.
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlmodel import SQLModel, Field
-from app.models.common import utc_now
+from sqlmodel import Field
+from app.models.common import utc_now, BaseTable
 
 
-class Workspace(SQLModel, table=True):
+class Workspace(BaseTable, table=True):
     __tablename__ = "workspaces"
 
     id: str = Field(
