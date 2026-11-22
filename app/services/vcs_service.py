@@ -3,7 +3,7 @@ from typing import List, Dict, Any
 from app.models.repo import Repo
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from app.models.common import utc_now, to_naive_utc
 
 logger = logging.getLogger("nexops.vcs")

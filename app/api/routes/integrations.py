@@ -400,8 +400,6 @@ async def _perform_sync(request: SyncRequest, user: User, session: AsyncSession)
                     if gh_created_at:
                         try:
                             dep_timestamp = to_naive_utc(datetime.fromisoformat(gh_created_at.replace("Z", "+00:00")))
-                            if dep_timestamp.tzinfo is None:
-                                dep_timestamp = dep_timestamp.replace(tzinfo=timezone.utc)
                         except Exception:
                             dep_timestamp = now
 
